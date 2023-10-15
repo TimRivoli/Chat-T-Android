@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:id="@+id/chatUsageParent"
+    android:background="@color/white">
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/chatUsageRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"   >
+    </androidx.recyclerview.widget.RecyclerView>
+    <ImageButton
+        android:id="@+id/rvScrollUp"
+        android:layout_width="45dp"
+        android:layout_height="45dp"
+        android:contentDescription="Scroll up"
+        android:src="@android:drawable/arrow_up_float"
+        android:background="@color/white"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:visibility="gone" />
+    <ImageButton
+        android:id="@+id/rvScrollDown"
+        android:layout_width="45dp"
+        android:layout_height="45dp"
+        android:contentDescription="Scroll down"
+        android:src="@android:drawable/arrow_down_float"
+        android:background="@color/white"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:visibility="gone" /></RelativeLayout>

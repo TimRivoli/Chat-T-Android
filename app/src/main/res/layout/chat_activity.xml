@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/white"
+    tools:context=".MainActivity">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/chatToolbarConstraint"
+        android:layout_height="45dp"
+        android:layout_width="match_parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/chatButtonCardContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="left"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:cardCornerRadius="8dp"
+                app:cardUseCompatPadding="true">
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+                    <ImageButton
+                        android:id="@+id/chatButtonClear"
+                        android:layout_width="45dp"
+                        android:layout_height="45dp"
+                        android:background="@color/white"
+                        android:contentDescription="Clear"
+                        android:src="@drawable/plus"
+                        android:scaleType="centerCrop"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        />
+                    <ImageButton
+                        android:id="@+id/btnListConversations"
+                        android:layout_width="45dp"
+                        android:layout_height="45dp"
+                        android:background="@color/white"
+                        android:contentDescription="Conversation list view"
+                        android:src="@drawable/list"
+                        android:scaleType="centerCrop"
+                        app:layout_constraintStart_toEndOf="@id/chatButtonClear"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        />
+                </androidx.constraintlayout.widget.ConstraintLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/chatSpinnderCardContainer"
+                android:layout_width="250dp"
+                android:layout_height="wrap_content"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toEndOf="@id/chatButtonCardContainer"
+                app:cardCornerRadius="8dp"
+                app:cardUseCompatPadding="true">
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+                    <Spinner
+                        android:id="@+id/chatSpinnerMode"
+                        android:layout_width="wrap_content"
+                        android:contentDescription="Mode selector"
+                        android:background="@color/white"
+                        android:minHeight="50dp"
+                        android:spinnerMode="dropdown"
+                        android:layout_height="wrap_content"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent" />
+
+                    <Spinner
+                        android:id="@+id/chatSpinnerLanguage"
+                        android:layout_width="100dp"
+                        android:layout_height="wrap_content"
+                        android:background="@color/white"
+                        android:contentDescription="Mode selector"
+                        android:minHeight="50dp"
+                        android:spinnerMode="dropdown"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toTopOf="parent" />
+                </androidx.constraintlayout.widget.ConstraintLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="left"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toEndOf="@id/chatSpinnderCardContainer"
+                app:cardCornerRadius="8dp"
+                app:cardUseCompatPadding="true">
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+                    <ImageButton
+                        android:id="@+id/chatButtonSpeak"
+                        android:layout_width="45dp"
+                        android:layout_height="45dp"
+                        android:background="@color/white"
+                        android:contentDescription="Speak text"
+                        android:src="@drawable/sound_off"
+                        android:scaleType="centerCrop"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        />
+
+                    <ImageButton
+                        android:id="@+id/chatButtonSave"
+                        android:layout_width="45dp"
+                        android:layout_height="45dp"
+                        android:background="@color/white"
+                        android:contentDescription="Save"
+                        android:src="@drawable/download"
+                        android:scaleType="centerCrop"
+                        app:layout_constraintStart_toEndOf="@+id/chatButtonSpeak"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        />
+                </androidx.constraintlayout.widget.ConstraintLayout>
+            </androidx.cardview.widget.CardView>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/chatRecyclerViewConstraint"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/chatToolbarConstraint"
+        app:layout_constraintBottom_toTopOf="@id/chatTextUserInputconstraint">
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipeRefreshLayout"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            app:layout_constraintTop_toTopOf="@+id/chatRecyclerViewConstraint">
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/chatRecyclerView"
+                app:layout_constraintTop_toTopOf="@+id/chatRecyclerViewConstraint"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"></androidx.recyclerview.widget.RecyclerView>
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/chatSampleConstraint"
+        android:layout_width="match_parent"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/chatToolbarConstraint"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_height="wrap_content">
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:cardCornerRadius="8dp"
+            app:cardUseCompatPadding="true"
+            app:cardBackgroundColor="@color/promptBackground"
+        tools:ignore="WebViewLayout">
+        <TextView
+            android:id="@+id/chatSampleItem"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clickable="true"
+            android:textAlignment="center"
+            android:text="Sample prompt"
+            android:padding="8dp"
+            android:paddingLeft="20dp"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small"></TextView>
+        </androidx.cardview.widget.CardView>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/chatTextUserInputconstraint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+        <ImageButton
+            android:id="@+id/btnMicrophone"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:clickable="true"
+            android:scaleType="centerCrop"
+            android:src="@drawable/microphone"
+            android:background="@color/white"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            ></ImageButton>
+            <EditText
+                android:id="@+id/chatTextUserInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:inputType="textMultiLine"
+                android:gravity="left|center"
+                android:hint="Ask me anything"
+                android:minWidth="315dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+                app:layout_constraintStart_toEndOf="@id/btnMicrophone"
+                app:layout_constraintEnd_toStartOf="@id/btnSubmit"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintWidth="true" />
+        <ImageButton
+            android:id="@+id/btnSubmit"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:contentDescription="Submit"
+            android:src="@drawable/play"
+            android:background="@color/white"
+            android:scaleType="centerCrop"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        <ProgressBar
+            android:id="@+id/chatProgressBar"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="50dp"
+            android:layout_height="45dp"
+            android:visibility="invisible"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <ImageButton
+        android:id="@+id/rvScrollUp"
+        android:layout_width="45dp"
+        android:layout_height="45dp"
+        android:contentDescription="Scroll up"
+        android:src="@android:drawable/arrow_up_float"
+        android:background="@color/white"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/chatRecyclerViewConstraint"
+        android:visibility="gone" />
+
+    <ImageButton
+        android:id="@+id/rvScrollDown"
+        android:layout_width="45dp"
+        android:layout_height="45dp"
+        android:contentDescription="Scroll down"
+        android:src="@android:drawable/arrow_down_float"
+        android:background="@color/white"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="@id/chatRecyclerViewConstraint"
+        android:visibility="gone" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
