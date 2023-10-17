@@ -20,7 +20,6 @@ import javax.crypto.spec.SecretKeySpec
 //Encrypted content conversations
 //text = Base64.getEncoder().encodeToString(bytes)
 //bytes = Base64.getDecoder().decode(text)
-//
 //Text string conversation
 //bytes = text.toByteArray()
 //text = String(decryptedBytes, Charsets.UTF_8)
@@ -34,6 +33,13 @@ object CryptoManager {
         this.keyStore = store
         this.keyStore.load(null)
     }
+
+    private fun bytesToText(b: ByteArray): String { return String(b, Charsets.UTF_8) }
+    private fun bytesFromText(text: String): ByteArray { return text.toByteArray(Charsets.UTF_8) }
+    private fun bytesToBase64Text(b: ByteArray): String { return String(Base64.getEncoder().encode(b), Charsets.UTF_8) }
+    private fun bytesFromBase64Text(text: String): ByteArray {return Base64.getDecoder().decode(text) }
+    //private fun bytesToIntString(b: ByteArray): String { val intList = b.map { it.toInt() and 0xFF}; return intList.joinToString(":") { it.toString() } }
+    //private fun bytesFromIntString(intString:String): ByteArray { val l = intString.split(":").map { it.toInt() }; return ByteArray(l.size) { index -> l[index].toByte() } }
 
     private fun generateAesKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance("AES")
@@ -64,6 +70,19 @@ object CryptoManager {
         keyPairGenerator.generateKeyPair()
     }
 
+    private fun publicKeyFromString(publicKeyString: String):PublicKey? {
+        try {
+            val publicKeyByteArray = bytesFromBase64Text(publicKeyString)
+            val keySpec = X509EncodedKeySpec(publicKeyByteArray)
+            val keyFactory = KeyFactory.getInstance("RSA")
+            return keyFactory.generatePublic(keySpec)
+        }
+        catch (ex: Exception) {
+            Log.e(TAG, "Unable to create public key from given string", ex)
+            return null
+        }
+    }
+
     private fun getPublicKey(): PublicKey {
         if (!keyExists(keyName)) {generateRSAKeys()}
         return keyStore.getCertificate(keyName).publicKey
@@ -75,9 +94,7 @@ object CryptoManager {
         return keyStore.getKey(keyName, null) as PrivateKey
     }
 
-    fun getPublicKeyString(): String {
-        return Base64.getEncoder().encodeToString(getPublicKey().encoded)
-    }
+    fun getPublicKeyString(): String { return bytesToBase64Text(getPublicKey().encoded)  }
 
     private fun encryptWithAes(byteArray: ByteArray, key: SecretKey, iv: ByteArray): ByteArray {
         Log.d(TAG, "Encrypting with AES... Size: " + byteArray.size)
@@ -132,25 +149,25 @@ object CryptoManager {
     }
 
     fun encryptStringAES(text:String, aesKeyString: String=""): String {
-        val aesKey = SecretKeySpec(Base64.getDecoder().decode(aesKeyString), "AES")
+        val aesKey = SecretKeySpec(bytesFromBase64Text(aesKeyString), "AES")
         val random = SecureRandom()
         val iv = ByteArray(16)
         random.nextBytes(iv)
         val sourceBytes = text.toByteArray()
         val encryptedBytes = encryptWithAes(sourceBytes, aesKey,iv)
-        val result = Base64.getEncoder().encodeToString(iv) + "|" + Base64.getEncoder().encodeToString(encryptedBytes)
+        val result = bytesToBase64Text(iv) + "|" + bytesToBase64Text(encryptedBytes)
         return result
     }
 
     fun decryptStringAES(text:String, aesKeyString: String=""): String {
         var result = ""
-        val aesKey = SecretKeySpec(Base64.getDecoder().decode(aesKeyString), "AES")
+        val aesKey = SecretKeySpec(bytesFromBase64Text(aesKeyString), "AES")
         val x = text.split("|")
         if (x.size == 2){
-            val iv = Base64.getDecoder().decode(x[0])
-            val encryptedBytes = Base64.getDecoder().decode(x[1])
+            val iv = bytesFromBase64Text(x[0])
+            val encryptedBytes = bytesFromBase64Text(x[1])
             val decryptedBytes = decryptWithAes(encryptedBytes, aesKey, iv)
-            result = String(decryptedBytes, Charsets.UTF_8)
+            result =  bytesToText(decryptedBytes)
         } else {
             Log.e(TAG, "Malformed AES encrypted text.")
         }
@@ -158,21 +175,21 @@ object CryptoManager {
     }
 
     fun encryptStringRSA(text:String, publicKeyString: String=""): String {
-        Log.d(TAG, "encryptStringRSA")
         var result = ""
-        Log.d(TAG, "Encrypting string length: " + text.length + " text:" + text.take(25) )
+        //Log.d(TAG, "Encrypting string length: " + text.length + " text:" + text.take(25) )
         var publicKey: PublicKey =  getPublicKey()
         if (publicKeyString !="") {
-            val publicKeyByteArray = Base64.getDecoder().decode(publicKeyString)
-            val keySpec = X509EncodedKeySpec(publicKeyByteArray)
-            val keyFactory = KeyFactory.getInstance("RSA")
-            publicKey =  keyFactory.generatePublic(keySpec)
+            val x =  publicKeyFromString(publicKeyString)
+            if (x ==null) {
+                Log.e(TAG, "Unable to generate public key from given input")
+                return ""
+            } else {publicKey = x}
         }
-        val sourceBytes = text.toByteArray()
+        val sourceBytes = bytesFromText(text)
         if (text.length < 190) {
-            Log.d(TAG, "Short string is directly encrypted")
+            Log.d(TAG, "Short string is directly encrypted with RSA")
             val encryptedBytes = encryptWithRSA(sourceBytes, publicKey)
-            result = Base64.getEncoder().encodeToString(encryptedBytes)
+            result = bytesToBase64Text(encryptedBytes)
         } else {
             Log.d(TAG, "Long string is encrypted with AES")
             val aesKey = generateAesKey()
@@ -182,48 +199,53 @@ object CryptoManager {
             val iv = ByteArray(16)
             random.nextBytes(iv)
             val encryptedBytes = encryptWithAes(sourceBytes, aesKey, iv)
-            result = Base64.getEncoder().encodeToString(encryptedAESKey)
-            result += "|" + Base64.getEncoder().encodeToString(iv)
-            result += "|" + Base64.getEncoder().encodeToString(encryptedBytes)
+            result = bytesToBase64Text(encryptedAESKey)
+            result += "|" + bytesToBase64Text(iv)
+            result += "|" + bytesToBase64Text(encryptedBytes)
         }
         return result
     }
 
     fun decryptStringRSA(text: String): String {
-        Log.d(TAG, "decryptStringRSA")
         var result = ""
         val x = text.split("|")
         if (x.size == 1) {
-            Log.d(TAG, "Short string is directly decrypted")
-            val decryptedBytes = decryptWtihRSA(Base64.getDecoder().decode(text))
-            result = String(decryptedBytes, Charsets.UTF_8)
+            Log.d(TAG, "Short string is directly decrypted from RSA")
+            val decryptedBytes = decryptWtihRSA(bytesFromBase64Text(text))
+            result = bytesToText(decryptedBytes)
         } else if (x.size == 3) {
             Log.d(TAG, "Long string is decrypted with AES")
-            val encryptedAESKey = Base64.getDecoder().decode(x[0])
+            val encryptedAESKey = bytesFromBase64Text(x[0])
             val decryptedAESKey = decryptWtihRSA(encryptedAESKey)
             val aesKey = SecretKeySpec(decryptedAESKey, "AES")
-            val iv = Base64.getDecoder().decode(x[1])
-            val encryptedBytes = Base64.getDecoder().decode(x[2])
+            val iv = bytesFromBase64Text(x[1])
+            val encryptedBytes = bytesFromBase64Text(x[2])
             val decryptedBytes = decryptWithAes(encryptedBytes, aesKey, iv)
-            result = String(decryptedBytes, Charsets.UTF_8)
+            result = bytesToText(decryptedBytes)
         } else {
             Log.e(TAG, "Decrypt string, malformed input array")
         }
         return result
     }
 
-    fun exportNewAESKey(): String{
-        val aesKey = generateAesKey()
-        return Base64.getEncoder().encodeToString(aesKey.encoded)
-    }
-
+    fun exportNewAESKey(): String{ return bytesToBase64Text(generateAesKey().encoded) }
 
     fun Test(text: String) {
+        val pkByte = getPublicKey().encoded
+        val s1 = bytesToBase64Text(pkByte)
+        val A = bytesToBase64Text(pkByte)
+        val B = bytesFromBase64Text(A)
+        val s2 = bytesToBase64Text(B)
+        Log.d(TAG, "Key s1: $s1")
+        Log.d(TAG, "Key s2: $s2")
+
+        val publicKeyString = getPublicKeyString()
+        Log.d(TAG, "Key: $publicKeyString")
         Log.d(TAG, "Testing encryption...")
-        val t1 = encryptStringRSA(text)
-        Log.d(TAG, "Encrypted: $t1")
+        val t1 = encryptStringRSA(text, publicKeyString)
+        Log.d(TAG, "Testing Encrypted: $t1")
         val t2 = decryptStringRSA(t1)
-        Log.d(TAG, "Output: $t2")
-        Log.d(TAG, "Result: " + (text==t2).toString())
+        Log.d(TAG, "Testing Output: $t2")
+        Log.d(TAG, "Testing Result: " + (text==t2).toString())
     }
 }

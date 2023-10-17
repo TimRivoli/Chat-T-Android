@@ -25,6 +25,7 @@ object FirebaseManager {
     private var usageRootID: String = ""
     private var deviceRootID: String = ""
     private var keyTransferRequestedCertificate: String = ""
+    private var keyTransferResponse = ""
 
     fun initialize(givenAndroidID: String, givenDeviceID: String, useGoogleAuth:Boolean) {
         val auth = FirebaseAuth.getInstance()
@@ -378,7 +379,7 @@ object FirebaseManager {
                         val m = ChatMessageExtended(conversationID, v[1], v[2], v[0].toLong())
                         messages.add(m)
                     } else {
-                        Log.e(TAG, "Malformed message in $conversationID: $item.take(30)")
+                        Log.e(TAG, "Malformed message in $conversationID segments: ${v.size} content: ${item.take(50)}")
                     }
                 }
             }
@@ -401,6 +402,9 @@ object FirebaseManager {
         data["rootID"] =  rootID
         if (StorageManager.encryptContent){
             data["key"] = CryptoManager.encryptStringAES(encryptionTestContent, StorageManager.contentEncryptionKey)
+            if (keyTransferRequestedCertificate!="") {data.set("transferRequest", keyTransferRequestedCertificate)}
+            if (keyTransferResponse !="") {data.set("transferResponse", keyTransferResponse)}
+
         }
         conversations.sortBy{it.conversationID}
         var itemCount = 0
@@ -447,31 +451,35 @@ object FirebaseManager {
         }
         if (document != null) {
             var encryptionStateIsGood = !StorageManager.encryptContent
+            val encryptionTestData = document.getString("key") ?: ""
+            keyTransferRequestedCertificate = document.getString("transferRequest") ?: ""
             if (StorageManager.encryptContent) {
                 Log.d(TAG, "Encryption is enabled.  Checking status...")
-                val sampleData = document.getString("key") ?: ""
-                if (sampleData == "") {
-                    if (StorageManager.contentEncryptionKey == "" || true) {
-                        Log.d(TAG, "Content not yet encrypted.  Generating new key and setting encryptionPending.")
+                Log.d(TAG, "Key: " + StorageManager.contentEncryptionKey)
+                if (encryptionTestData == "") {
+                    Log.d(TAG, "Content not yet encrypted, setting encryptionPending.")
+                    StorageManager.encryptionPending = true
+                    if (StorageManager.contentEncryptionKey == "") {
+                        Log.d(TAG, "Generating new AES encryption key...")
                         StorageManager.saveContentEncryptionKey(CryptoManager.exportNewAESKey())
-                        StorageManager.encryptionPending = true
                     }
                 } else {
                     if (StorageManager.contentEncryptionKey != "") {
                         Log.d(TAG, "Content is encrypted.  Testing if my key matches.")
-                        val test = CryptoManager.decryptStringAES(sampleData, StorageManager.contentEncryptionKey)
+                        val test = CryptoManager.decryptStringAES(encryptionTestData, StorageManager.contentEncryptionKey)
                         if (test == encryptionTestContent) {
-                            Log.d(TAG, "Encryption state is good.  Clear to proceed.")
+                            Log.d(TAG, "AES Encryption state is good.  Clear to proceed.")
                             encryptionStateIsGood = true
+                        } else {
+                            Log.e(TAG, "AES Encryption test failed with my key.")
                         }
                     }
-                    val keyTransferRequestedCertificate = document.getString("transferRequest") ?: ""
                     if (!encryptionStateIsGood) {
-                        val keyTransferResponse = document.getString("transferResponse") ?: ""
+                        keyTransferResponse = document.getString("transferResponse") ?: ""
                         if (keyTransferResponse != "" && keyTransferRequestedCertificate == CryptoManager.getPublicKeyString()) {
                             Log.d(TAG, "Content is encrypted, checking the status of my key request.")
                             val testKey = CryptoManager.decryptStringRSA(keyTransferResponse)
-                            val test = CryptoManager.decryptStringAES(sampleData, testKey)
+                            val test = CryptoManager.decryptStringAES(encryptionTestData, testKey)
                             if (test == encryptionTestContent) {
                                 Log.d(TAG, "Encryption state is good.  Clear to proceed.")
                                 StorageManager.saveContentEncryptionKey(testKey)
@@ -493,7 +501,7 @@ object FirebaseManager {
                         Log.d(TAG, "My encryption state is good.  Checking for transfer requests...")
                         if (keyTransferRequestedCertificate != "") {
                             Log.d(TAG, "Sending response to: $keyTransferRequestedCertificate")
-                            val keyTransferResponse = CryptoManager.encryptStringRSA(StorageManager.contentEncryptionKey, keyTransferRequestedCertificate)
+                            keyTransferResponse = CryptoManager.encryptStringRSA(StorageManager.contentEncryptionKey, keyTransferRequestedCertificate)
                             val documentData = document.data
                             if (documentData != null) {
                                 Log.d(TAG, "My response: $keyTransferResponse")
@@ -503,6 +511,12 @@ object FirebaseManager {
                             }
                         }
                     }
+                }
+            }
+            else {
+                if (encryptionTestData !="") {  //Need to decrypt Firebase conent
+                    encryptionStateIsGood = false
+                    StorageManager.encryptionPending = true
                 }
             }
             if (encryptionStateIsGood){

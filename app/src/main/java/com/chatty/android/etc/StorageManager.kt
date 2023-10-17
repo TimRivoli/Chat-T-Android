@@ -324,10 +324,14 @@ object StorageManager {
                         val d1 = sqLiteManager.getConversationsLastUpdated(userID)
                         Log.d( TAG, "Comparing conversation table dates local $d1 (${toDate(d1)}), remote $d2 (${toDate(d2) })" )
                         var fbConversations: ArrayList<Conversation> =  FirebaseManager.getConversationTOC()
-                        if (d1 != d2) {
-                            if (encryptContent && encryptionPending) {
-                                Log.d(TAG, "Encryption is pending.  Setting fbConversations to empty list to trigger re-write.")
+                        if (d1 != d2 || encryptContent) {
+                            if (encryptionPending) {
                                 fbConversations = ArrayList<Conversation>()
+                                if (encryptContent) {
+                                    Log.d(TAG, "Encryption is pending.  Setting fbConversations to empty list to trigger re-write.")
+                                } else {
+                                    Log.d(TAG, "Decryption is pending.  Setting fbConversations to empty list to trigger re-write.")
+                                }
                             }
                             var sqlConversations: ArrayList<Conversation> = ArrayList(sqLiteManager.getAllConversations(userID))
                             var messagesFB: ArrayList<ChatMessageExtended>
@@ -346,7 +350,7 @@ object StorageManager {
                                 while (iterator.hasNext()) {
                                     val c = iterator.next()
                                     if (c.conversationID in sqlDeletedConversations) {
-                                        Log.d(TAG, "Deleting $c.conversationID from Firebase")
+                                        Log.d(TAG, "Deleting ${c.conversationID} from Firebase")
                                         FirebaseManager.deleteConversation(c.conversationID)
                                         iterator.remove()
                                         conversationUpdates += 1
@@ -354,20 +358,16 @@ object StorageManager {
                                 }
                                 if (conversationUpdates > 0) {
                                     FirebaseManager.saveDeletedConversations(sqlDeletedConversations)
-                                    Log.d(
-                                        TAG,
-                                        "Deleted $conversationUpdates FireBase conversations"
-                                    )
+                                    Log.d(TAG,"Deleted $conversationUpdates FireBase conversations")
                                 }
-
                                 Log.d(TAG, "Begin clearing deleted conversations from SQL...")
                                 conversationUpdates = 0
                                 iterator = sqlConversations.iterator()
                                 while (iterator.hasNext()) {
                                     val c = iterator.next()
                                     if (c.conversationID in fbDeletedConversations) {
-                                        Log.d(TAG, "Deleting $c.conversationID from SQL")
-                                        FirebaseManager.deleteConversation(c.conversationID)
+                                        Log.d(TAG, "Deleting ${c.conversationID} from SQL")
+                                        sqLiteManager.deleteConversation(c.conversationID)
                                         iterator.remove()
                                         conversationUpdates += 1
                                     }
@@ -388,40 +388,23 @@ object StorageManager {
                                             //Log.d(TAG,"Conversation match: " + c.conversationID + " SQL: " + c.dateModified + " FB: " + cc.dateModified                                        )
                                             if (c.dateModified != cc.dateModified) {
                                                 //messagesFB = FirebaseManager.getMessages(c.conversationID)
-                                                val t =
-                                                    FirebaseManager.getConversation(c.conversationID)
-                                                val fbConv =
-                                                    t.first    //More complete conversation than the TOC provides, use instead off cc
+                                                val t = FirebaseManager.getConversation(c.conversationID)
+                                                val fbConv = t.first    //More complete conversation than the TOC provides, use instead off cc
                                                 messagesFB = t.second
                                                 if (messagesFB.size == 0) {
-                                                    Log.w(
-                                                        TAG,
-                                                        "Zero messages returned from getMessagesFirebase"
-                                                    ) //retrieval may have just failed so don't do anything
+                                                    Log.w(TAG,"Zero messages returned from getMessagesFirebase" ) //retrieval may have just failed so don't do anything
                                                 } else {
-                                                    messagesSQL =
-                                                        ArrayList(sqLiteManager.getMessages(c.conversationID))
+                                                    messagesSQL = ArrayList(sqLiteManager.getMessages(c.conversationID))
                                                     messagesSQL.sortBy { it.timeStamp }
                                                     messagesFB.sortBy { it.timeStamp }
-                                                    val sqlSet =
-                                                        messagesSQL.map { it.timeStamp }.toSet()
-                                                    val fbSet =
-                                                        messagesFB.map { it.timeStamp }.toSet()
+                                                    val sqlSet =  messagesSQL.map { it.timeStamp }.toSet()
+                                                    val fbSet = messagesFB.map { it.timeStamp }.toSet()
                                                     if (c.dateModified > cc.dateModified) {
-                                                        Log.d(
-                                                            TAG,
-                                                            "Conversation found but SQL is newer, update Firebase version..."
-                                                        )
-                                                        FirebaseManager.saveConversation(
-                                                            c,
-                                                            messagesSQL
-                                                        )
+                                                        Log.d(TAG,"Conversation found but SQL is newer, update Firebase version..."  )
+                                                        FirebaseManager.saveConversation(c, messagesSQL )
                                                         conversationUpdates += 1
                                                     } else {
-                                                        Log.d(
-                                                            TAG,
-                                                            "Conversation found but Firebase is newer, update SQL version..."
-                                                        )
+                                                        Log.d(TAG,"Conversation found but Firebase is newer, update SQL version..." )
                                                         val iterator = messagesSQL.iterator()
                                                         while (iterator.hasNext()) {
                                                             val message = iterator.next()
@@ -433,10 +416,7 @@ object StorageManager {
                                                         }
                                                         for (message in messagesFB) {
                                                             if (message.timeStamp !in sqlSet) {
-                                                                sqLiteManager.appendMessage(
-                                                                    fbConv,
-                                                                    message
-                                                                )
+                                                                sqLiteManager.appendMessage( fbConv, message )
                                                                 messagesSQL.add(message)
                                                                 messageUpdates += 1
                                                             }
@@ -450,29 +430,20 @@ object StorageManager {
                                     }
                                     if (!found) {
                                         conversationUpdates += 1
-                                        messagesSQL =
-                                            sqLiteManager.getMessages(c.conversationID) as ArrayList<ChatMessageExtended>
+                                        messagesSQL =  sqLiteManager.getMessages(c.conversationID) as ArrayList<ChatMessageExtended>
                                         if (messagesSQL.size == 0) {
                                             Log.d(TAG, "Deleting empty conversation from SQL...")
                                             sqLiteManager.deleteConversation(c.conversationID)
                                         } else {
-                                            Log.d(
-                                                TAG,
-                                                "Appending missing conversation ${c.conversationID}  to Firebase..."
-                                            )
+                                            Log.d(TAG,"Appending missing conversation ${c.conversationID} to Firebase...")
                                             c.saved = true
                                             c.userID = userID
                                             FirebaseManager.saveConversation(c, messagesSQL)
                                         }
                                     }
                                 }
-                                Log.d(
-                                    TAG,
-                                    "SyncUp updates: " + conversationUpdates + ": " + messageUpdates
-                                )
-                                if (conversationUpdates > 0) {
-                                    TOCRefreshNeeded = true
-                                }
+                                Log.d(TAG,"SyncUp updates: " + conversationUpdates + ": " + messageUpdates)
+                                if (conversationUpdates > 0) {TOCRefreshNeeded = true}
                             }
                             //------------------------------ Part III Sync changes down from Firebase  -----------------------------------------
                             if (syncConversationsDown && FirebaseManager.isFunctional) {
@@ -487,7 +458,6 @@ object StorageManager {
                                         }
                                     }
                                     if (!found) {
-                                        conversationUpdates += 1
                                         //messagesFB = FirebaseManager.getMessages(c.conversationID)
                                         val t = FirebaseManager.getConversation(c.conversationID)
                                         val fbConv = t.first    //More complete conversation than the TOC provides, use instead off cc
@@ -497,28 +467,21 @@ object StorageManager {
 //                                        Log.d(TAG, "Deleting empty conversation from Firebase...")
 //                                        deleteConversationFirebase(c.conversationID)
                                         } else {
+                                            conversationUpdates += 1
                                             Log.d(TAG, "Appending missing conversation ${c.conversationID} to SQL..." )
                                             fbConv.saved = true
                                             fbConv.userID = userID
                                             sqlConversations.add(fbConv)
                                             sqLiteManager.saveConversation(fbConv)
-                                            for (m in messagesFB) {
-                                                sqLiteManager.appendMessage(fbConv, m)
-                                            }
+                                            for (m in messagesFB) {sqLiteManager.appendMessage(fbConv, m) }
                                         }
                                     }
                                 }
-                                Log.d(
-                                    TAG,
-                                    "SyncDown updates: $conversationUpdates: $messageUpdates"
-                                )
-                                if (conversationUpdates > 0) {
-                                    TOCRefreshNeeded = true
-                                }
+                                Log.d(TAG,"SyncDown updates: $conversationUpdates: $messageUpdates")
+                                if (conversationUpdates > 0) {TOCRefreshNeeded = true}
                             }
                             if (TOCRefreshNeeded && FirebaseManager.isFunctional) {
-                                sqlConversations =
-                                    ArrayList(sqLiteManager.getAllConversations(userID))
+                                sqlConversations = ArrayList(sqLiteManager.getAllConversations(userID))
                                 Log.d(TAG, "Updating Firebase TOC")
                                 FirebaseManager.makeConversationTOC(sqlConversations)
                             }
@@ -533,5 +496,4 @@ object StorageManager {
             }
         }
     }
-
 }

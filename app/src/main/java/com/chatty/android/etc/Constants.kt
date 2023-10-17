@@ -1,6 +1,6 @@
 package com.chatty.android.etc
 const val OPENAI_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions"
-const val webClientID = "EnterYourWebClientID"
+const val googleClientID = "EnterYourWebClientID"
 const val ConversationTableName = "conversations"
 const val DeletionsTableName = "conversations_deleted"
 const val MessageTableName = "messages"
