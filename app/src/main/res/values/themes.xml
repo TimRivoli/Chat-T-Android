@@ -1,8 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Base.Theme.Chatty" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:statusBarColor">@color/white</item>
+    <style name="Base.Theme.Chatty" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:colorPrimary">@color/white</item>
+        <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:windowBackground">@color/white</item>
+        <item name="android:windowFullscreen">false</item> <!-- Makes the activity full-screen -->
+        <item name="android:windowNoTitle">true</item> <!-- Hides the title bar -->
     </style>
 
     <style name="Theme.Chatty" parent="Base.Theme.Chatty" >

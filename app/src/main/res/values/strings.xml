@@ -3,4 +3,82 @@
     <string name="chat_activity_label">Chat-T</string>
     <string name="chat_conversation_activity_label">Conversations</string>
     <string name="chat_usage_activity_label">Usage</string>
+
+    <!-- Navigation drawer -->
+    <string name="nav_home">Home</string>
+    <string name="nav_conversations">Conversations</string>
+    <string name="nav_notes">Notes</string>
+    <string name="nav_usage">Usage</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_prices">Prices</string>
+
+    <!-- Options menu -->
+    <string name="menu_speak">Speak</string>
+    <string name="menu_auto_submit">Auto-submit</string>
+    <string name="menu_save_as_note">Save as Note</string>
+
+    <!-- Section headers -->
+    <string name="section_chat">Chat</string>
+    <string name="section_conversations">Conversations</string>
+    <string name="section_notes">Notes</string>
+    <string name="section_usage">Usage</string>
+    <string name="section_settings">Settings</string>
+    <string name="section_prices">Prices</string>
+    <string name="section_stock_detail">Stock Detail</string>
+
+    <!-- Empty states -->
+    <string name="empty_conversations">No conversations yet</string>
+    <string name="empty_notes">No notes yet</string>
+    <string name="empty_usage">No usage records yet</string>
+    <string name="empty_prices">No price data available</string>
+
+    <!-- Hints and placeholders -->
+    <string name="hint_ask_me_anything">Ask me anything</string>
+    <string name="hint_price_search">Filter by ticker or company…</string>
+    <string name="hint_note_title">Note Title</string>
+    <string name="hint_note_content">Note content</string>
+    <string name="hint_message_item">Text message item</string>
+    <string name="sample_prompt">Sample prompt</string>
+    <string name="note_title_default">Title</string>
+
+    <!-- Usage summary labels -->
+    <string name="usage_prompt">Prompt</string>
+    <string name="usage_completion">Completion</string>
+    <string name="usage_total">Total</string>
+
+    <!-- Settings labels -->
+    <string name="setting_speak_output">Speak output</string>
+    <string name="setting_auto_submit">Auto-submit after pause</string>
+
+    <!-- Status messages -->
+    <string name="status_loading">Loading…</string>
+    <string name="status_initializing">Initializing…</string>
+    <string name="status_authenticating_google">Authenticating with your Google account…</string>
+    <string name="status_cloud_not_functional">Cloud storage is not functional.</string>
+    <string name="status_awaiting_decryption_key">Awaiting another device to transfer a decryption key to me.</string>
+    <string name="status_running_sync">Running sync of local storage to cloud…</string>
+    <string name="status_sync_complete">Encrypted sync to cloud storage complete.</string>
+    <string name="status_no_internet">No Internet Connection</string>
+    <string name="status_no_subscription">Your device isn\'t currently registered for a Chat subscription service, but you can use the Notes feature.</string>
+    <string name="status_choose_section">Choose Chat or Notes</string>
+    <string name="status_device_not_activated">Device not activated. Tap the send button for your activation key.</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_title_device_not_activated">Device Not Activated</string>
+    <string name="dialog_message_device_not_activated">This device is not registered for the chat service.\n\nActivation key:\n\n%1$s\n\nProvide this key to your administrator to activate this device.</string>
+    <string name="dialog_button_copy_key">Copy Key</string>
+    <string name="dialog_button_dismiss">Dismiss</string>
+    <string name="dialog_button_ok">OK</string>
+
+    <!-- Toasts -->
+    <string name="toast_sync_started">Background sync started…</string>
+
+    <!-- Key transfer approval -->
+    <string name="key_transfer_activity_label">Device Access Request</string>
+    <string name="key_transfer_heading">New Device Access Request</string>
+    <string name="key_transfer_message">The following device is requesting access to your encrypted data:\n\n%1$s\n\nDo you want to authorize this device?</string>
+    <string name="key_transfer_authorize">Authorize</string>
+    <string name="key_transfer_deny">Deny</string>
+    <string name="key_transfer_approved">Access granted to new device.</string>
+    <string name="key_transfer_denied">Access request cleared.</string>
 </resources>

@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="white">#FFFFFFFF</color>
-    <color name="promptBackground"> #FFdde0ed </color>
-    <color name="responseBackground"> #FFfcfdff </color>
+    <color name="divider">#E0E0E0</color>
+    <color name="colorAccent">#1976D2</color>
+    <color name="promptBackground">#FFdde0ed</color>
+    <color name="responseBackground">#FFfcfdff</color>
+    <color name="colorError">#FFB00020</color>
+    <color name="colorSuccess">#FF388E3C</color>
+    <color name="colorSurface">#FFF5F5F5</color>
+    <color name="colorTextSecondary">#FF757575</color>
+    <color name="colorTextHint">#FFBDBDBD</color>
 </resources>
