@@ -7,6 +7,9 @@ import com.chatty.android.etc.ChatManager
 import com.chatty.android.etc.CryptoManager
 import com.chatty.android.etc.StorageManager
 import com.chatty.android.etc.TextToSpeechManager
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import java.security.KeyStore
 
 class ChattYApplication : Application() {
@@ -27,6 +30,12 @@ class ChattYApplication : Application() {
         } catch (e: Exception) {
             e.printStackTrace()
             Log.e(TAG, "KeyStore load failure: " + e.toString())
+        }
+        val appCheck = FirebaseAppCheck.getInstance()
+        if (BuildConfig.DEBUG) {
+            appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
+        } else {
+            appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
         }
         sm = StorageManager.init(applicationContext, androidID)
         cm = ChatManager()

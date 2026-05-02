@@ -7,8 +7,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.tasks.await
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.FieldValue
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
+import java.util.Locale
 import com.chatty.android.etc.DataClasses.*
 
 object FirebaseManager {
@@ -26,56 +30,52 @@ object FirebaseManager {
     private var deviceRootID: String = ""
     private var keyTransferRequestedCertificate: String = ""
     private var keyTransferResponse = ""
+    private var NotesCategoryCache = ArrayList<NoteCategory>() //Cache on TOC read, sync from there during sync
 
-    fun initialize(givenAndroidID: String, givenDeviceID: String, useGoogleAuth:Boolean) {
-        val auth = FirebaseAuth.getInstance()
-        androidID = givenAndroidID
-        deviceID = givenDeviceID
-        if (useGoogleAuth) { //Only set userID for non-anonymous
-            userID = auth.currentUser?.uid ?: ""
-            StorageManager.userID = userID
-        }
-        try {
-            if (auth.currentUser != null) {
-                Log.d(TAG, "Firebase was authenticated automatically. UserID: " + StorageManager.userID)
-            } else {
-                Log.d(TAG, "Firebase was not authenticated automatically...")
-                if (firebaseUserID !="" && firebasePwd!=""){
-                    Log.d(TAG,"Firebase: Logging in with email and password...")
-                    auth.signInWithEmailAndPassword(firebaseUserID, firebasePwd)
-                        .addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                userID = auth.currentUser?.uid ?: ""
-                                StorageManager.userID = userID
-                                Log.d(TAG, "Firebase: Logged in with email and password as $userID")
-                            }
-                        }
-                } else {
-                    Log.d(TAG,"Firebase: Logging anonymously...")
-                    auth.signInAnonymously()
-                        .addOnCompleteListener { task ->
-                            if (task.isSuccessful) {
-                                val x = auth.currentUser?.uid ?: ""
-                                Log.d(TAG, "Firebase: Logged in anonymously userID: $x")
-                            }
-                        }
-                }
+    suspend fun initialize(givenAndroidID:String,givenDeviceID:String,useGoogleAuth:Boolean){
+        val auth=FirebaseAuth.getInstance()
+        androidID=givenAndroidID
+        deviceID=givenDeviceID
+        try{
+            var user=auth.currentUser
+            if(user==null){
+                Log.d(TAG,"Firebase: No cached user, signing in anonymously...")
+                val result=auth.signInAnonymously().await()
+                user=result.user
+            }else{
+                Log.d(TAG,"Firebase: Existing user detected: ${user.uid} anonymous: ${user.isAnonymous}")
             }
-        } catch (ex: Exception) {
-            Log.e(TAG, ex.message.toString())
-            Log.e(TAG,"Firebase: Login failed.  Disabling firebase")
-            isFunctional = false
+            if(user==null){
+                Log.e(TAG,"Firebase: Authentication failed, user is null")
+                isFunctional=false
+                return
+            }
+            userID=user.uid
+            StorageManager.userID=userID
+            Log.d(TAG,"Firebase initialized with userID: $userID")
+            rootID=userID
+            usageRootID="$androidID:$userID"
+            deviceRootID="$androidID:$deviceID"
+            fsDatabase=FirebaseFirestore.getInstance()
+            isFunctional=true
+            isInitialized=true
+        }catch(ex:Exception){
+            Log.e(TAG,"Firebase initialization failed",ex)
+            isFunctional=false
+            isInitialized=false
         }
-        rootID = androidID
+    }
+    fun onGoogleAuthComplete(googleUserID: String) {
+        userID = googleUserID
+        StorageManager.userID = userID
+        rootID = userID
+        usageRootID = "$androidID:$userID"
         deviceRootID = "$androidID:$deviceID"
-        usageRootID = androidID
-        if (userID != ""){
-            rootID = userID
-            usageRootID += ":$userID"
+        if (!::fsDatabase.isInitialized) {
+            fsDatabase = FirebaseFirestore.getInstance()
         }
-
-        if (isFunctional) { fsDatabase = FirebaseFirestore.getInstance()        }
-        isInitialized = isFunctional
+        isFunctional = true
+        Log.d(TAG, "Firebase updated with Google user: $userID")
     }
 
     fun shutDown() {
@@ -109,29 +109,29 @@ object FirebaseManager {
         }
     }
     private fun saveDocument(collectionName: String, documentID: String, data: MutableMap<String, Any>) {
-        //Log.d(TAG, "Saving document to $collectionName documentID $documentID")
+        Log.d(TAG, "Saving document to $collectionName documentID $documentID")
         fsDatabase.collection(collectionName).document(documentID).set(data)
             .addOnSuccessListener {
-                //Log.d(TAG, "Saved to $collectionName documentID $documentID")
+                Log.d(TAG, "Saved to $collectionName documentID $documentID")
             }
             .addOnFailureListener { e ->
                 Log.w(TAG,"Error saving to $collectionName documentID $documentID", e )
             }
     }
-    private fun getDocumentItems(d: DocumentSnapshot):ArrayList<String> {
+    private fun getDocumentItems(d: DocumentSnapshot, itemPrefix: String="item"):ArrayList<String> {
         val result = ArrayList<String>()
-        val itemCount = d.getLong("itemCount") ?: 0
+        val itemCount = d.getLong("${itemPrefix}Count") ?: 0
         for (i in 0 until itemCount ) {
-            val x = d.getString("item$i") ?: ""
+            val x = d.getString("${itemPrefix}${i}") ?: ""
             if (x != "") { result.add(x) }
         }
         return result
     }
-    private fun getDocumentItemsLong(d: DocumentSnapshot):ArrayList<Long> {
+    private fun getDocumentItemsLong(d: DocumentSnapshot, itemPrefix: String="item"):ArrayList<Long> {
         val result = ArrayList<Long>()
-        val itemCount = d.getLong("itemCount") ?: 0
+        val itemCount = d.getLong("${itemPrefix}Count") ?: 0
         for (i in 0 until itemCount ) {
-            val x = d.getLong("item$i") ?: 0
+            val x = d.getLong("${itemPrefix}${i}") ?: 0
             if (x > -1) { result.add(x) }
         }
         return result
@@ -140,9 +140,19 @@ object FirebaseManager {
     //-------------------------------------------------- device setup functions  --------------------------------------------------
     private fun updateDeviceStatus() {
         //Log.d(TAG, "Updating device registration: $deviceRootID")
-        val deviceModel = Build.MODEL
+        val now = Date()
+        val readableTimestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.getDefault()).format(now)
         val publicKeyString = CryptoManager.getPublicKeyString()
-        val data = hashMapOf("deviceModel" to deviceModel,"userID" to userID, "publicKey" to publicKeyString, "timeStamp" to Date().time )
+        val data = hashMapOf(
+            "deviceManufacturer" to Build.MANUFACTURER,
+            "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}",
+            "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            "appVersion" to com.chatty.android.BuildConfig.VERSION_NAME,
+            "userID" to userID,
+            "publicKey" to publicKeyString,
+            "timeStamp" to now.time,
+            "lastCheckinReadable" to readableTimestamp
+        )
         fsDatabase.collection(RegistrationTableName).document(deviceRootID).set(data)
             .addOnSuccessListener {
                 Log.d(TAG, "Updated device registration: $deviceRootID")
@@ -152,7 +162,11 @@ object FirebaseManager {
             }
     }
     fun updateLastSynced() {
-        fsDatabase.collection(RegistrationTableName).document(deviceRootID).update("lastSynced", StorageManager.lastSynced)
+        val readableLastSynced = SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.getDefault()).format(Date(StorageManager.lastSynced))
+        fsDatabase.collection(RegistrationTableName).document(deviceRootID).update(
+            "lastSynced", StorageManager.lastSynced,
+            "lastSyncedReadable", readableLastSynced
+        )
             .addOnSuccessListener {
                 Log.d(TAG, "updateLastSynced successfull")
             }
@@ -163,7 +177,7 @@ object FirebaseManager {
     }
     private fun activateTrialLicense() {
         Log.d(TAG, "Activating trial license for device: $deviceRootID")
-        val data = hashMapOf("subscriptionLevel" to 1, "useGoogleAuth" to false, "syncUsage" to true, "timeStamp" to Date().time  )
+        val data = hashMapOf("subscriptionLevel" to 1, "useGoogleAuth" to false,  "syncConversations" to false, "syncUsage" to true, "timeStamp" to Date().time  )
         fsDatabase.collection(ActivatedDevicesTableName).document(deviceRootID).set(data)
             .addOnSuccessListener {
                 Log.d(TAG, "Device activated for trial")
@@ -179,12 +193,20 @@ object FirebaseManager {
         try {
             val document = documentRef.get().await()
             val useGoogleAuth = document.getBoolean("useGoogleAuth") ?:false
-            val x = document.getLong("subscriptionLevel") ?:0
+            val x = document.getLong("subscriptionLevel") ?:-100
             var subscriptionLevel  = x.toInt()
             val syncConversations = document.getBoolean("syncConversations") ?:false
             val syncUsage = document.getBoolean("syncUsage") ?:true
             var apiKey = document.getString("apiKey") ?:""
             var webClientID = document.getString("webClientID") ?:""
+            var defaultModel = document.getString("defaultModel") ?:""
+            var enhancedModel = document.getString("enhancedModel") ?:""
+            if (defaultModel !="") {
+                ChatManager.defaultModel = defaultModel
+            }
+            if (enhancedModel !="") {
+                ChatManager.enhancedModel = enhancedModel
+            }
             if (apiKey !="") {apiKey = CryptoManager.decryptStringRSA(apiKey)}
             if (webClientID !="") {webClientID = CryptoManager.decryptStringRSA(webClientID)}
             StorageManager.API_KEY = apiKey
@@ -198,6 +220,7 @@ object FirebaseManager {
         } catch (exception:Exception) {
             Log.e(TAG, "Unable to read device settings for $deviceRootID")
             StorageManager.saveDeviceSettings(1, false, false, false, "")
+            activateTrialLicense()
         }
         updateDeviceStatus()
     }
@@ -294,11 +317,84 @@ object FirebaseManager {
         }
         return updateCount
     }
+
+    //-------------------------------------------------- Firebase Chat Activity Type Management  --------------------------------------------------
+    suspend fun getChatModesLastUpdated():Long
+    {
+        var maxTimeStamp:Long = defaultDate
+        try {
+            val snap =  fsDatabase.collection(ChatModesTableName)
+                .orderBy("timeStamp", Query.Direction.DESCENDING)
+                .limit(1)
+                .get()
+                .await()
+            if (snap != null) {
+                if (!snap.isEmpty) {
+                    if (snap.documents.isNotEmpty()) {
+                        maxTimeStamp = snap.documents[0].getLong("timeStamp") ?: 0
+                    }
+                }
+            }
+            Log.d(TAG, "getActivityTypesLastUpdated result $maxTimeStamp (${StorageManager.toDateStr(maxTimeStamp)})")
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read $ChatModesTableName collection", exception)
+        }
+        return maxTimeStamp
+    }
+
+    suspend fun getChatModes(): ArrayList<ChatActivityType> {
+        val result = ArrayList<ChatActivityType>()
+        try {
+            val snap = fsDatabase.collection(ChatModesTableName)
+                .orderBy("timeStamp", Query.Direction.DESCENDING)
+                .limit(1)
+                .get()
+                .await()
+            if (snap != null) {
+                if (!snap.isEmpty) {
+                    for (document in snap.documents) {
+                        val timeStamp = document.getLong("timeStamp") ?: 0
+                        val items = getDocumentItems(document)
+                        for (item in items) {
+                            val v = item.split("|")
+                            // value.activityName + "|" + value.prompt + "|" + value.conversational + "|" + value.clearConversationOnChange + "|" + value.showLanguageOptions + "|" + value.temperature
+                            val a = ChatActivityType(v[0], v[1], v[2].toBooleanStrict(), v[3].toBooleanStrict(), v[4].toBooleanStrict(), v[5].toDouble())
+                            result.add(a)
+                        }
+                    }
+                }
+            }
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read $ChatModesTableName collection", exception)
+        }
+        return result
+    }
+
+    suspend fun saveChatModes(activities: ArrayList<ChatActivityType>){
+        Log.d(TAG, "Saving chat modes to firebase")
+        val baseID = "System"
+        val timeStamp = Date().time
+        if (activities.size > 0) {
+            var itemCount = 0
+            var id = generateID(timeStamp, true, baseID)
+            var data = HashMap<String, Any>()
+            val iterator = activities.iterator()
+            while (iterator.hasNext()) {
+                val value = iterator.next()
+                data["item$itemCount"] = value.activityName + "|" + value.prompt + "|" + value.conversational + "|" + value.clearConversationOnChange + "|" + value.showLanguageOptions + "|" + value.temperature
+                itemCount+=1
+            }
+            data["timeStamp"] = timeStamp
+            data["itemCount"] = itemCount
+            saveDocument(ChatModesTableName, id, data)
+        }
+    }
+
     //-------------------------------------------------- Firebase Conversation Management  --------------------------------------------------
     suspend fun getDeletedConversations(): ArrayList<Long> {
         val result = ArrayList<Long>()
         try {
-            val document = fsDatabase.collection(DeletionsTableName).document(userID)
+            val document = fsDatabase.collection(ConversationDeletionsTableName).document(userID)
                 .get()
                 .await()
             if (document != null) {
@@ -306,7 +402,7 @@ object FirebaseManager {
                 for (item in items) {result.add(item.toLong())}
             }
         } catch (exception:Exception) {
-            Log.e(TAG, "Unable to read $DeletionsTableName collection, disabling Firebase.  Reason: " + exception.toString())
+            Log.e(TAG, "Unable to read $ConversationDeletionsTableName collection, disabling Firebase.  Reason: " + exception.toString())
             isFunctional = false
         }
         return result
@@ -321,7 +417,7 @@ object FirebaseManager {
             data["item$i"] = id
             i += 1
         }
-        saveDocument(DeletionsTableName, userID, data)
+        saveDocument(ConversationDeletionsTableName, userID, data)
     }
 
      fun saveConversation(conversation: Conversation, messages: ArrayList<ChatMessageExtended>) {
@@ -391,6 +487,7 @@ object FirebaseManager {
     }
 
     fun makeConversationTOC(conversations: ArrayList<Conversation>)  {
+        //TOC Entry is conversationID:dateModified:title.take25.encrypted
         var lastUpdated = defaultDate
         for (c in conversations) {
             if (c.dateModified.time > lastUpdated) { lastUpdated = c.dateModified.time}
@@ -416,6 +513,7 @@ object FirebaseManager {
             itemCount += 1
         }
         data["itemCount"] = itemCount
+        Log.d(TAG, "Creating new Conversation TOC, entries: ${itemCount}, latestEntry: ${lastUpdated} TOCID: ${documentID}")
         saveDocument(ConversationTableName, documentID, data)
     }
 
@@ -484,6 +582,7 @@ object FirebaseManager {
                                 Log.d(TAG, "Encryption state is good.  Clear to proceed.")
                                 StorageManager.saveContentEncryptionKey(testKey)
                                 encryptionStateIsGood = true
+                                clearKeyTransferFieldsFromTOC(documentID)
                             } else {
                                 Log.e(TAG, "Encryption test failed on received key.")
                             }
@@ -499,16 +598,10 @@ object FirebaseManager {
                         }
                     } else {
                         Log.d(TAG, "My encryption state is good.  Checking for transfer requests...")
-                        if (keyTransferRequestedCertificate != "") {
-                            Log.d(TAG, "Sending response to: $keyTransferRequestedCertificate")
-                            keyTransferResponse = CryptoManager.encryptStringRSA(StorageManager.contentEncryptionKey, keyTransferRequestedCertificate)
-                            val documentData = document.data
-                            if (documentData != null) {
-                                Log.d(TAG, "My response: $keyTransferResponse")
-                                documentData.set("transferResponse", keyTransferResponse)
-                                saveDocument(ConversationTableName, documentID, documentData)
-                                Log.d(TAG, "getConversationTOC, sent key.")
-                            }
+                        if (keyTransferRequestedCertificate != "" && keyTransferRequestedCertificate != CryptoManager.getPublicKeyString()) {
+                            Log.d(TAG, "Key transfer requested, storing for user approval")
+                            val deviceModel = getRequestingDeviceModel(keyTransferRequestedCertificate)
+                            StorageManager.savePendingKeyTransferRequest(keyTransferRequestedCertificate, deviceModel)
                         }
                     }
                 }
@@ -542,6 +635,64 @@ object FirebaseManager {
         return conversations
     }
 
+    private suspend fun getRequestingDeviceModel(publicKey: String): String {
+        return try {
+            val snap = fsDatabase.collection(RegistrationTableName)
+                .whereEqualTo("publicKey", publicKey)
+                .limit(1)
+                .get()
+                .await()
+            if (!snap.isEmpty) snap.documents[0].getString("deviceModel") ?: "Unknown device"
+            else "Unknown device"
+        } catch (e: Exception) {
+            Log.e(TAG, "getRequestingDeviceModel failed", e)
+            "Unknown device"
+        }
+    }
+
+    suspend fun sendKeyTransferResponse() {
+        val requesterPublicKey = StorageManager.pendingKeyTransferPublicKey
+        if (requesterPublicKey.isEmpty() || StorageManager.contentEncryptionKey.isEmpty()) {
+            Log.e(TAG, "sendKeyTransferResponse: missing key data")
+            StorageManager.clearPendingKeyTransferRequest()
+            return
+        }
+        val documentID = "$rootID:TOC"
+        try {
+            val document = fsDatabase.collection(ConversationTableName).document(documentID).get().await()
+            val documentData = document.data
+            if (documentData != null) {
+                documentData["transferResponse"] = CryptoManager.encryptStringRSA(StorageManager.contentEncryptionKey, requesterPublicKey)
+                saveDocument(ConversationTableName, documentID, documentData)
+                Log.d(TAG, "sendKeyTransferResponse: sent encrypted key to requester")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "sendKeyTransferResponse failed", e)
+        }
+        StorageManager.markKeyTransferResponded()
+        StorageManager.clearPendingKeyTransferRequest()
+    }
+
+    suspend fun clearKeyTransferRequest() {
+        val documentID = "$rootID:TOC"
+        try {
+            fsDatabase.collection(ConversationTableName).document(documentID)
+                .update("transferRequest", FieldValue.delete(), "transferResponse", FieldValue.delete())
+                .await()
+            Log.d(TAG, "clearKeyTransferRequest: cleared transfer fields")
+        } catch (e: Exception) {
+            Log.e(TAG, "clearKeyTransferRequest failed", e)
+        }
+        StorageManager.clearPendingKeyTransferRequest()
+    }
+
+    private fun clearKeyTransferFieldsFromTOC(documentID: String) {
+        fsDatabase.collection(ConversationTableName).document(documentID)
+            .update("transferRequest", FieldValue.delete(), "transferResponse", FieldValue.delete())
+            .addOnSuccessListener { Log.d(TAG, "Cleared key transfer fields from TOC") }
+            .addOnFailureListener { e -> Log.e(TAG, "Failed to clear key transfer fields", e) }
+    }
+
     fun deleteConversation(conversationID: Long) {
         val documentID = generateID(conversationID, false)
         val docRef = fsDatabase.collection(ConversationTableName).document(documentID)
@@ -554,6 +705,196 @@ object FirebaseManager {
                 println("Error deleting conversation $conversationID: $e")
             }
     }
+    //-------------------------------------------------- Firebase Notes Management  --------------------------------------------------
+    fun saveNote(note: NoteEntry) {
+        val documentID = generateID(note.noteID, false)
+        val data =HashMap<String, Any>()
+        data["noteID"] = note.noteID
+        data["categoryID"] = note.categoryID
+        data["dateAccessed"] = note.dateAccessed
+        data["dateCreated"] = note.dateCreated
+        data["dateModified"] = note.dateModified
+        if (StorageManager.encryptContent) {
+            data["title"] =  CryptoManager.encryptStringAES(note.title, StorageManager.contentEncryptionKey)
+            data["content"] = CryptoManager.encryptStringAES(note.content, StorageManager.contentEncryptionKey)
+        } else {
+            data["title"] =  note.title
+            data["content"] =  note.content
+        }
+        saveDocument(NotesTableName, documentID, data)
+        //note.saved = true
+    }
+
+    suspend fun getNote(noteID: Long): NoteEntry  {
+        val note = NoteEntry()
+        val documentID = generateID(noteID, false)
+        try {
+            val document = fsDatabase.collection(NotesTableName).document(documentID)
+                .get()
+                .await()
+            if (document != null) {
+                note.noteID = document.getLong("noteID") ?:noteID
+                note.categoryID = (document.getLong("categoryID") ?:0).toInt()
+                note.dateAccessed = document.getTimestamp("dateAccessed")?.toDate() ?: Date(defaultDate)
+                note.dateCreated = document.getTimestamp("dateCreated")?.toDate() ?: Date(defaultDate)
+                note.dateModified = document.getTimestamp("dateModified")?.toDate() ?: Date(defaultDate)
+                note.title = document.getString("title") ?:""
+                note.content = document.getString("content") ?:""
+                if (StorageManager.encryptContent) {
+                    note.title = CryptoManager.decryptStringAES(note.title, StorageManager.contentEncryptionKey)
+                    note.content = CryptoManager.decryptStringAES(note.content, StorageManager.contentEncryptionKey)
+                }
+            }
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read note noteID: $noteID, disabling Firebase", exception)
+            isFunctional = false
+        }
+        return note
+    }
+
+    fun makeNotesTOC(notes: ArrayList<NoteEntry>)  {
+        //TOC Entry is notesID:dateModified:title.take25.encrypted
+        var lastUpdated = defaultDate
+        for (c in notes) {
+            if (c.dateModified.time > lastUpdated) { lastUpdated = c.dateModified.time}
+        }
+        val documentID = "$rootID:TOC"
+        val data =HashMap<String, Any>()
+        data["dateCreated"] = lastUpdated
+        data["title"] =  "TOC"
+        data["rootID"] = rootID
+        notes.sortBy{it.noteID}
+        var itemCount = 0
+        for (c in notes) {
+            //This is going to be incomplete, but it is more efficient storage on the TOC, updates are done off the full item download not TOC
+            var title = c.title.take(25).replace("|", "")
+            if (StorageManager.encryptContent)  { title = CryptoManager.encryptStringAES(title, StorageManager.contentEncryptionKey) }
+            data["item$itemCount"] = c.noteID.toString() +  "|" + c.dateModified.time.toString() + "|" + title
+            itemCount += 1
+        }
+        data["itemCount"] = itemCount
+        Log.d(TAG, "Creating new Notes TOC, entries: ${itemCount}, latestEntry: ${lastUpdated} TOCID: ${documentID}")
+        //Note categories, put on the TOC in plain text
+        itemCount = 0
+        for (c in NotesCategoryCache) {
+            data["category${itemCount}"] = c.categoryID.toString() +  "|" + c.categoryName
+            itemCount += 1
+        }
+        data["categoryCount"] = itemCount
+        saveDocument(NotesTableName, documentID, data)
+    }
+
+    suspend fun getNotesTOCLastUpdated():Long
+    {
+        val documentID = "$rootID:TOC"
+        var maxTimeStamp:Long = 0
+        try {
+            val document = fsDatabase.collection(NotesTableName).document(documentID)
+                .get()
+                .await()
+            if (document != null) {
+                maxTimeStamp = document.getLong("dateCreated")?: 0
+            }
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read latest dateCreated from $NotesTableName TOC", exception)
+        }
+        return maxTimeStamp
+    }
+
+    suspend fun getNotesTOC(): ArrayList<NoteEntry> {
+        Log.d(TAG, "getNoteEntryTOC")
+        val documentID = "$rootID:TOC"
+        val notes = ArrayList<NoteEntry>()
+        var document: DocumentSnapshot? = null
+        try {
+            document = fsDatabase.collection(NotesTableName).document(documentID)
+                .get()
+                .await()
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read TOC", exception)
+            //If the TOC fails to read, this will cause an upload of the full note list and re-creation of the TOC, due to the structure of the IDs items won't be duplicated
+        }
+        if (document != null) {
+            var encryptionStateIsGood = true
+            if (encryptionStateIsGood){
+                var items = getDocumentItems(document)
+                for (item in items) {
+                    val v = item.split("|")
+                    if (v.size==3 || (v.size==4 && StorageManager.encryptContent)) {
+                        val noteID = v[0].toLong()
+                        val dateModified = v[1].toLong()
+                        var titlePartial = v[2]
+                        if (StorageManager.encryptContent) {
+                            titlePartial = v[2] + "|" + v[3]
+                            titlePartial = CryptoManager.decryptStringAES(titlePartial, StorageManager.contentEncryptionKey)
+                        }
+                        val c = NoteEntry(noteID, 0, "", titlePartial, "", Date(dateModified), Date(dateModified), Date(dateModified))
+                        notes.add(c)
+                    } else {
+                        Log.e(TAG, "Malformed note from TOC size: " + v.size + " content " + item)
+                    }
+                }
+                //Note categories, put on the TOC in plain text
+                NotesCategoryCache = ArrayList<NoteCategory>()
+                items = getDocumentItems(document,"category")
+                for (item in items) {
+                    val v = item.split("|")
+                    if (v.size==2 ) {
+                        val categoryID = v[0].toInt()
+                        val categoryName = v[1]
+                        val c = NoteCategory(categoryID,categoryName)
+                        NotesCategoryCache.add(c)
+                    } else {
+                        Log.e(TAG, "Malformed note category from TOC size: " + v.size + " content " + item)
+                    }
+                }
+            }
+        }
+        return notes
+    }
+
+    fun deleteNote(noteID: Long) {
+        val documentID = generateID(noteID, false)
+        val docRef = fsDatabase.collection(NotesTableName).document(documentID)
+        docRef
+            .delete()
+            .addOnSuccessListener {
+                println("NoteEntry $noteID successfully deleted!")
+            }
+            .addOnFailureListener { e ->
+                println("Error deleting note $noteID: $e")
+            }
+    }
+
+    suspend fun getDeletedNotes(): ArrayList<Long> {
+        val result = ArrayList<Long>()
+        try {
+            val document = fsDatabase.collection(NotesDeletionsTableName).document(userID)
+                .get()
+                .await()
+            if (document != null) {
+                val items = getDocumentItemsLong(document)
+                for (item in items) {result.add(item.toLong())}
+            }
+        } catch (exception:Exception) {
+            Log.e(TAG, "Unable to read $NotesDeletionsTableName collection, disabling Firebase.  Reason: " + exception.toString())
+            isFunctional = false
+        }
+        return result
+    }
+    fun saveDeletedNotes(ids: ArrayList<Long>){
+        val timeStamp = Date().time
+        val data = HashMap<String, Any>()
+        data["timeStamp"] = timeStamp
+        data["itemCount"] = ids.size
+        var i = 0
+        for (id in ids){
+            data["item$i"] = id
+            i += 1
+        }
+        saveDocument(NotesDeletionsTableName, userID, data)
+    }
+
 
     //-------------------------------------------------- Firebase ChatUsage Management  --------------------------------------------------
     private suspend fun getUsageLastUpdated():Long
@@ -627,6 +968,100 @@ object FirebaseManager {
             }
         }
         return updateCount
+    }
+
+    //-------------------------------------------------- Prices Working Set Management  --------------------------------------------------
+    suspend fun getPricesWorkingSetTOCLastUpdated(): Long {
+        val documentID = "$rootID:PRICETOC"
+        var maxTimeStamp: Long = 0
+        try {
+            val document = fsDatabase.collection(PricesWorkingSetTableName).document(documentID)
+                .get()
+                .await()
+            if (document != null) {
+                // Parse item timestamps from TOC entries ("TICKER|timestamp" format)
+                val items = getDocumentItems(document)
+                for (item in items) {
+                    val parts = item.split("|")
+                    if (parts.size >= 2) {
+                        val ts = parts[1].toLongOrNull() ?: 0L
+                        if (ts > maxTimeStamp) maxTimeStamp = ts
+                    }
+                }
+            }
+        } catch (exception: Exception) {
+            Log.e(TAG, "Unable to read $PricesWorkingSetTableName TOC", exception)
+        }
+        Log.d(TAG, "getPricesWorkingSetTOCLastUpdated: $maxTimeStamp")
+        return maxTimeStamp
+    }
+
+    suspend fun getPricesWorkingSet(): ArrayList<PriceWorkingSetEntry> {
+        val result = ArrayList<PriceWorkingSetEntry>()
+        try {
+            val snap = fsDatabase.collection(PricesWorkingSetTableName)
+                .whereGreaterThanOrEqualTo(FieldPath.documentId(), "$rootID:")
+                .whereLessThan(FieldPath.documentId(), "$rootID;")
+                .get()
+                .await()
+            if (snap != null && !snap.isEmpty) {
+                for (document in snap.documents) {
+                    if (document.id.endsWith(":PRICETOC")) continue
+                    val entry = PriceWorkingSetEntry()
+                    entry.ticker = document.getString("Ticker") ?: document.id.substringAfterLast(":")
+                    entry.companyName = document.getString("CompanyName") ?: ""
+                    entry.sector = document.getString("Sector") ?: ""
+                    entry.sp500Listed = document.getBoolean("SP500Listed") ?: false
+                    entry.currentPrice = document.getDouble("CurrentPrice") ?: 0.0
+                    entry.average5Day = document.getDouble("Average_5Day") ?: 0.0
+                    entry.average2Day = document.getDouble("Average_2Day") ?: 0.0
+                    entry.pc2Year = document.getDouble("PC_2Year") ?: 0.0
+                    entry.pc1Year = document.getDouble("PC_1Year") ?: 0.0
+                    entry.pc6Month = document.getDouble("PC_6Month") ?: 0.0
+                    entry.pc3Month = document.getDouble("PC_3Month") ?: 0.0
+                    entry.pc2Month = document.getDouble("PC_2Month") ?: 0.0
+                    entry.pc1Month = document.getDouble("PC_1Month") ?: 0.0
+                    entry.pc1Day = document.getDouble("PC_1Day") ?: 0.0
+                    entry.gainMonthly = document.getDouble("Gain_Monthly") ?: 0.0
+                    entry.lossStd1Year = document.getDouble("LossStd_1Year") ?: 0.0
+                    entry.pointValue = (document.getLong("Point_Value") ?: 0).toInt()
+                    entry.targetHoldings = document.getDouble("TargetHoldings") ?: 0.0
+                    entry.revenue = document.getDouble("Revenue") ?: 0.0
+                    entry.netIncome = document.getDouble("NetIncome") ?: 0.0
+                    entry.companySize = (document.getLong("CompanySize") ?: 0).toInt()
+                    entry.marketCap = document.getDouble("MarketCap") ?: 0.0
+                    entry.operatingExpense = document.getDouble("OperatingExpense") ?: 0.0
+                    entry.netProfitMargin = document.getDouble("NetProfitMargin") ?: 0.0
+                    entry.earningsPerShare = document.getDouble("EarningsPerShare") ?: 0.0
+                    entry.cashShortTermInvestments = document.getDouble("CashShortTermInvestments") ?: 0.0
+                    entry.totalAssets = document.getDouble("TotalAssets") ?: 0.0
+                    entry.totalLiabilities = document.getDouble("TotalLiabilities") ?: 0.0
+                    entry.netWorth = document.getDouble("NetWorth") ?: 0.0
+                    entry.totalEquity = document.getDouble("TotalEquity") ?: 0.0
+                    entry.sharesOutstanding = document.getDouble("SharesOutstanding") ?: 0.0
+                    entry.priceToBook = document.getDouble("PriceToBook") ?: 0.0
+                    entry.returnOnAssets = document.getDouble("ReturnOnAssetts") ?: 0.0
+                    entry.returnOnCapital = document.getDouble("ReturnOnCapital") ?: 0.0
+                    entry.cashFromOperations = document.getDouble("CashFromOperations") ?: 0.0
+                    entry.cashFromInvesting = document.getDouble("CashFromInvesting") ?: 0.0
+                    entry.cashFromFinancing = document.getDouble("CashFromFinancing") ?: 0.0
+                    entry.netChangeInCash = document.getDouble("NetChangeInCash") ?: 0.0
+                    entry.freeCashFlow = document.getDouble("FreeCashFlow") ?: 0.0
+                    var comments = document.getString("Comments") ?: ""
+                    if (StorageManager.encryptContent && comments.isNotEmpty()) {
+                        comments = CryptoManager.decryptStringAES(comments, StorageManager.contentEncryptionKey)
+                    }
+                    entry.comments = comments
+                    entry.latestEntry = document.getLong("LatestEntry")?.let { Date(it) }
+                        ?: document.getTimestamp("LatestEntry")?.toDate()
+                        ?: Date()
+                    result.add(entry)
+                }
+            }
+        } catch (exception: Exception) {
+            Log.e(TAG, "Unable to read $PricesWorkingSetTableName collection", exception)
+        }
+        return result
     }
 
     //-------------------------------------------------- Firebase Database Management  --------------------------------------------------

@@ -9,6 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
 import java.util.Date
 import com.chatty.android.etc.DataClasses.*
+import com.chatty.android.etc.DynamicContentGeneration.defaultNoteCategories
 
 private class SQLiteHelper(
     context: Context,
@@ -17,7 +18,7 @@ private class SQLiteHelper(
     version: Int = DATABASE_VERSION
 ) : SQLiteOpenHelper(context, name, factory, version) {
     companion object {
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 3
         const val DATABASE_NAME = "ChatMessagesDB"
         private const val CREATE_CONVERSATION_TABLE = """
             CREATE TABLE IF NOT EXISTS  $ConversationTableName (
@@ -32,7 +33,7 @@ private class SQLiteHelper(
                 firebaseID STRING
             )
         """
-        private const val CREATE_CONVERSATION_DELETED_TABLE = """ CREATE TABLE IF NOT EXISTS $DeletionsTableName ( conversationID LONG  )        """
+        private const val CREATE_CONVERSATION_DELETED_TABLE = """ CREATE TABLE IF NOT EXISTS $ConversationDeletionsTableName ( conversationID LONG, timeStamp LONG  )        """
 
         private const val CREATE_MESSAGES_TABLE = """
             CREATE TABLE IF NOT EXISTS $MessageTableName (
@@ -61,6 +62,43 @@ private class SQLiteHelper(
                 timeStamp LONG
             )
         """
+        // value.activityName + "|" + value.prompt + "|" + value.conversational + "|" + value.clearConversationOnChange + "|" + value.showLanguageOptions + "|" + value.temperature
+        private const val CREATE_CHATMODES_TABLE = """
+            CREATE TABLE IF NOT EXISTS $ChatModesTableName (
+                activityName TEXT,
+                prompt TEXT,
+                conversational INTEGER,
+                clearConversationOnChange INTEGER,
+                showLanguageOptions INTEGER,
+                temperature FLOAT,
+                sequence INTEGER,
+                timeStamp LONG
+            )
+        """
+
+        private const val CREATE_NOTES_TABLE = """
+            CREATE TABLE IF NOT EXISTS $NotesTableName (
+                noteID LONG,
+                categoryID INTEGER,
+                title TEXT,
+                content TEXT,
+                dateCreated LONG,
+                dateModified LONG,
+                dateAccessed LONG
+            )
+        """
+        private const val CREATE_NOTESCATEGORIES_TABLE = """
+            CREATE TABLE IF NOT EXISTS $NotesCategoryTableName (
+                categoryID INTEGER,
+                categoryName TEXT
+            )
+        """
+        private const val CREATE_DEFAULT_NOTESCATEGORIES = """
+            INSERT INTO ${NotesCategoryTableName} (categoryID, categoryName)
+            SELECT 0, 'General'
+            WHERE NOT EXISTS (SELECT 1 FROM ${NotesCategoryTableName} WHERE categoryID = 0);
+        """
+        private const val CREATE_NOTES_DELETED_TABLE = """ CREATE TABLE IF NOT EXISTS $NotesDeletionsTableName ( noteID LONG, timeStamp LONG  )        """
 
     }
 
@@ -71,28 +109,38 @@ private class SQLiteHelper(
         db.execSQL(CREATE_MESSAGES_TABLE)
         db.execSQL(CREATE_USAGE_TABLE)
         db.execSQL(CREATE_SAMPLEPROMPTS_TABLE)
+        db.execSQL(CREATE_CHATMODES_TABLE)
+        db.execSQL(CREATE_NOTESCATEGORIES_TABLE)
+        db.execSQL(CREATE_DEFAULT_NOTESCATEGORIES)
+        db.execSQL(CREATE_NOTES_TABLE)
+        db.execSQL(CREATE_NOTES_DELETED_TABLE)
     }
 
     fun recreateDatabase(db: SQLiteDatabase) {
         Log.d("SQLiteHelper", "Deleting and re-creating database...")
         db.execSQL("DROP TABLE IF EXISTS $ConversationTableName")
-        db.execSQL("DROP TABLE IF EXISTS $DeletionsTableName")
+        db.execSQL("DROP TABLE IF EXISTS $ConversationDeletionsTableName")
         db.execSQL("DROP TABLE IF EXISTS $MessageTableName")
         db.execSQL("DROP TABLE IF EXISTS $UsageTableName")
         db.execSQL("DROP TABLE IF EXISTS $SamplePromptTableName")
+        db.execSQL("DROP TABLE IF EXISTS $ChatModesTableName")
+        db.execSQL("DROP TABLE IF EXISTS $NotesTableName")
+        db.execSQL("DROP TABLE IF EXISTS $NotesCategoryTableName")
+        db.execSQL("DROP TABLE IF EXISTS $NotesDeletionsTableName")
         onCreate(db)
     }
 
-    fun applyUpdates (db: SQLiteDatabase) {
-        Log.d("SQLiteHelper", "Updating database...")
-        //db.execSQL(CREATE_CONVERSATION_DELETED_TABLE)
-        db.execSQL("DROP TABLE IF EXISTS $SamplePromptTableName")
-        db.execSQL(CREATE_SAMPLEPROMPTS_TABLE)
-//        db.execSQL(CREATE_USAGE_TABLE)
-    }
-
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        recreateDatabase(db)
+        Log.d("SQLiteHelper", "onUpgrade update database from ${oldVersion} to ${newVersion}")
+        if (oldVersion < 2) {
+            db.execSQL("DROP TABLE IF EXISTS $ConversationDeletionsTableName")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("DROP TABLE IF EXISTS $NotesTableName")
+            db.execSQL("DROP TABLE IF EXISTS $NotesCategoryTableName")
+            db.execSQL("DROP TABLE IF EXISTS $NotesDeletionsTableName")
+        }
+        onCreate(db)
     }
 }
 
@@ -101,7 +149,7 @@ class SQLiteManager(context: Context) {
     private val TAG = "SQLiteDataSource"
     private val dbHelper: SQLiteHelper = SQLiteHelper(context)
     private val database: SQLiteDatabase = dbHelper.writableDatabase
-
+    private var noteCategories = ArrayList<NoteCategory>()
     fun shutDown(){
         database.close()
         dbHelper.close()
@@ -114,16 +162,16 @@ class SQLiteManager(context: Context) {
         } else {
             Log.d(TAG, "Deleting invalid conversations...")
             database.execSQL("DELETE FROM $ConversationTableName")
-            database.execSQL("DELETE FROM $DeletionsTableName")
+            database.execSQL("DELETE FROM $ConversationDeletionsTableName")
             database.execSQL("DELETE FROM $MessageTableName")
             database.execSQL("DELETE FROM $UsageTableName")
+            database.execSQL("DELETE FROM $ChatModesTableName")
         }
     }
 
     //---------------------------------- Conversations  ------------------------------------------
     @SuppressLint("Range")
     private fun cursorToConversation(cursor: Cursor): Conversation {
-        //TODO: Add error handling, so far hasn't been necessary
         val conversationID = cursor.getLong(cursor.getColumnIndex("conversationID"))
         val title = cursor.getString(cursor.getColumnIndex("title"))
         val summary = cursor.getString(cursor.getColumnIndex("summary"))
@@ -144,7 +192,6 @@ class SQLiteManager(context: Context) {
         }
         cursor.close()
         return maxTimeStamp
-
     }
 
     fun updateConversationDates(conversation: Conversation) {
@@ -171,7 +218,7 @@ class SQLiteManager(context: Context) {
     fun deleteConversation(conversationID: Long){
         database.execSQL("DELETE FROM $ConversationTableName WHERE conversationID=$conversationID")
         database.execSQL("DELETE FROM $MessageTableName WHERE conversationID=$conversationID")
-        database.execSQL("INSERT INTO $DeletionsTableName (conversationID) values($conversationID)")
+        database.execSQL("INSERT INTO $ConversationDeletionsTableName (conversationID, timeStamp) values(${conversationID}, ${Date().time})")
     }
 
     @SuppressLint("Range")
@@ -179,7 +226,7 @@ class SQLiteManager(context: Context) {
         val result = ArrayList<Long>()
         val cursor: Cursor
         try {
-            cursor = database.query(DeletionsTableName, null, null, null,null, null, null)
+            cursor = database.query(ConversationDeletionsTableName, null, null, null,null, null, null)
             cursor.moveToFirst()
             while (!cursor.isAfterLast) {
                 val conversationID = cursor.getLong(cursor.getColumnIndex("conversationID"))
@@ -192,11 +239,21 @@ class SQLiteManager(context: Context) {
         }
         return result
     }
-    fun getAllConversations(userID:String): List<Conversation> {
+
+    fun getConversations(userID:String, searchString: String = "", limitResultsTo: Int=50): List<Conversation> {
         val conversations = ArrayList<Conversation>()
         val cursor: Cursor
+        var sql = "SELECT * FROM $ConversationTableName"
+        var whereClause = ""
+        if (searchString !="") {
+            whereClause = "(Title LIKE '%" + searchString + "%')"
+        }
+        if (whereClause != "") {   sql += " WHERE " + whereClause  }
+        sql += " ORDER BY dateAccessed DESC"
+        if (limitResultsTo > 0) {sql += " LIMIT ${limitResultsTo}"}
+        Log.d(TAG, "SQL: ${sql}")
         try {
-            cursor = database.query(ConversationTableName, null, "userID=?", arrayOf(userID), null, null, "dateModified DESC")
+            cursor = database.rawQuery(sql, null)
             cursor.moveToFirst()
             while (!cursor.isAfterLast) {
                 val conversation = cursorToConversation(cursor)
@@ -372,6 +429,238 @@ class SQLiteManager(context: Context) {
         }
     }
 
+    //-------------------------------------------  Notes --------------------------------------------------
+
+    @SuppressLint("Range")
+    private fun cursorToNoteEntry(cursor: Cursor): NoteEntry {
+        val noteID = cursor.getLong(cursor.getColumnIndex("noteID"))
+        val categoryID = cursor.getInt(cursor.getColumnIndex("categoryID"))
+        val categoryName = getNoteCategoryName(categoryID)
+        val title = cursor.getString(cursor.getColumnIndex("title"))
+        val content = cursor.getString(cursor.getColumnIndex("content"))
+        val dateCreated = Date(cursor.getLong(cursor.getColumnIndex("dateCreated")))
+        val dateAccessed = Date(cursor.getLong(cursor.getColumnIndex("dateAccessed")))
+        val dateModified = Date(cursor.getLong(cursor.getColumnIndex("dateModified")))
+        return NoteEntry(noteID, categoryID, categoryName, title, content, dateCreated, dateAccessed, dateModified)
+    }
+
+    @SuppressLint("Range")
+    private fun cursorToNoteCategory(cursor: Cursor): NoteCategory {
+        val categoryID = cursor.getInt(cursor.getColumnIndex("categoryID"))
+        val categoryName = cursor.getString(cursor.getColumnIndex("categoryName"))
+        return NoteCategory(categoryID, categoryName)
+    }
+
+    private fun cacheNoteCategories() {
+        noteCategories = ArrayList<NoteCategory>()
+        var sql = "SELECT categoryID, categoryName FROM $NotesCategoryTableName ORDER BY categoryID"
+        try {
+            val cursor = database.rawQuery(sql, null)
+            cursor.moveToFirst()
+            while (!cursor.isAfterLast) {
+                val cat = cursorToNoteCategory(cursor)
+                noteCategories.add(cat)
+                //Log.d(TAG, "NoteCategory: ${cat.categoryID}: ${cat.categoryName}")
+                cursor.moveToNext()
+            }
+            cursor.close()
+        } catch (e: SQLException) {
+            Log.e(TAG, e.message.toString())
+        }
+        if (noteCategories.size < 2) {
+            noteCategories = defaultNoteCategories()
+            for (c in noteCategories) {createNoteCategory(c.categoryName,c.categoryID)}
+        }
+    }
+
+    fun getNoteCategoryMaxID():Int {
+        var result = 0
+        if (noteCategories.size ==0) { cacheNoteCategories() }
+        for (c in noteCategories) {
+            if (c.categoryID > result) {result = c.categoryID}
+        }
+        return result
+    }
+
+    fun getNoteCategoryID(categoryName: String = ""):Int {
+        var result:Int = -1
+        if (noteCategories.size ==0) { cacheNoteCategories() }
+        for (c in noteCategories) {
+            if (c.categoryName == categoryName) { result = c.categoryID}
+        }
+        return result
+    }
+
+    fun getNoteCategoryName(categoryID: Int):String {
+        var result = ""
+        if (noteCategories.size ==0) { cacheNoteCategories() }
+        for (c in noteCategories) {
+            if (c.categoryID==categoryID) {result = c.categoryName}
+        }
+        return result
+    }
+
+    fun getNoteCategories(includeAnyOption: Boolean=false): ArrayList<String> {
+        if (noteCategories.size ==0) {cacheNoteCategories()}
+        val result = ArrayList<String>()
+        if (includeAnyOption) { result.add(0, "Any")  }
+        for (c in noteCategories) { result.add(c.categoryName) }
+        return result
+    }
+
+    fun createNoteCategory(categoryName: String, categoryID: Int=-1) {
+        var newCategoryID = categoryID
+        if (newCategoryID <0) {newCategoryID = getNoteCategoryMaxID() + 1}
+        val query = "INSERT INTO ${NotesCategoryTableName} (categoryID, categoryName) SELECT ${newCategoryID}, '${categoryName}' WHERE NOT EXISTS (SELECT 1 FROM ${NotesCategoryTableName} WHERE categoryName ='${categoryName}')"
+        try {
+            database.execSQL(query)
+            Log.d(TAG, "Note category ${categoryName} created")
+        } catch (e: Exception) {
+            Log.w(TAG, "Note category ${categoryName} creation failed: " + e.message.toString())
+        }
+    }
+
+    fun deleteNoteCategory(categoryID: Int, replacementCategoryID: Int=0) {
+        val query1 = "UPDATE $NotesTableName SET CategoryID=${replacementCategoryID} WHERE categoryID=${categoryID}"
+        val query2 = "DELETE FROM $NotesCategoryTableName WHERE categoryID=${categoryID}"
+        try {
+            database.execSQL(query1)
+            database.execSQL(query2)
+            Log.d(TAG, "Note category ${categoryID} deletion succeeded")
+        } catch (e: Exception) {
+            Log.w(TAG, "Note category ${categoryID} deletion failed: " + e.message.toString())
+        }
+    }
+
+    fun getNotes(categoryID: Int=-1, searchString: String="", limitResultsTo:Int = 0, metaDataOnly:Boolean=false): ArrayList<NoteEntry> {
+        val notes = ArrayList<NoteEntry>()
+        var sql = "SELECT * FROM $NotesTableName"
+        var whereClause = ""
+        var searchClause = ""
+        if (categoryID >= 0.toLong()) {  whereClause = "categoryID=${categoryID}" }
+        if (searchString !="") {
+            searchClause = "(Title LIKE '%" + searchString + "%' OR Content LIKE '%" + searchString + "%')"
+            if (whereClause == "") {
+                whereClause = searchClause
+            } else {
+                whereClause += " AND " + searchClause
+            }
+        }
+        if (whereClause != "") {   sql += " WHERE " + whereClause  }
+        sql += " ORDER BY dateAccessed DESC"
+        if (limitResultsTo > 0) {sql += " LIMIT ${limitResultsTo}"}
+        //Log.d(TAG, "SQL Search: ${sql}")
+        try {
+            val cursor = database.rawQuery(sql, null)
+            cursor.moveToFirst()
+            while (!cursor.isAfterLast) {
+                val note = cursorToNoteEntry(cursor)
+                if (metaDataOnly) {
+                    note.title=""
+                    note.content=""
+                }
+                notes.add(note)
+                cursor.moveToNext()
+            }
+            cursor.close()
+        } catch (e: SQLException) {
+            Log.e(TAG, e.message.toString())
+        }
+        return notes
+    }
+
+    fun saveNote(note: NoteEntry) {
+        Log.d(TAG, "Saving note to SQL " + note.noteID)
+        if (note.categoryName == "General") {note.categoryID=0}
+        val values = ContentValues()
+        values.put("noteID", note.noteID)
+        values.put("categoryid", note.categoryID)
+        values.put("title", note.title)
+        values.put("content", note.content)
+        val whereClause = "noteID = ?"
+        val whereArgs = arrayOf(note.noteID.toString())
+        val rowsAffected = database.update("Notes", values, whereClause, whereArgs)
+        if (rowsAffected > 0) {
+            println("Note updated successfully")
+        } else {
+            println("Note update failed, inserting new row")
+            database.insert(NotesTableName, null, values)
+        }
+        updateNoteDates(note)
+    }
+
+    fun updateNoteDates(note: NoteEntry) {
+        //values.put doesn't seem to work, so I'm using a SQL statement
+        val SQL = "UPDATE $NotesTableName SET dateCreated = ${note.dateCreated.time}, dateAccessed = ${note.dateAccessed.time},  dateModified = ${note.dateModified.time} WHERE noteID = ${note.noteID};"
+        //Log.d(TAG, SQL)
+        database.execSQL(SQL)
+    }
+
+    fun getNote(noteID: Long): NoteEntry {
+        val cursor: Cursor
+        Log.d(TAG, "getNote $noteID")
+        var result = NoteEntry()
+        try {
+            cursor = database.query(NotesTableName, null, "noteID=?", arrayOf(noteID.toString()), null, null, null)
+            cursor.moveToFirst()
+            while (!cursor.isAfterLast) {
+                result = cursorToNoteEntry(cursor)
+                cursor.moveToNext()
+            }
+            cursor.close()
+        } catch (e: SQLException) {
+            Log.e(TAG, e.message.toString())
+        }
+        if (result.noteID == 0.toLong()) {result.noteID = Date().time}
+        return result
+    }
+
+    fun deleteNote(noteID: Long) {
+        try {
+            database.execSQL("DELETE FROM $NotesTableName WHERE noteID=$noteID")
+            database.execSQL("INSERT INTO $NotesDeletionsTableName (noteID, timeStamp) values(${noteID}, ${Date().time})")
+            Log.d(TAG, "Note deletion succeeded")
+        } catch (e: Exception) {
+            Log.w(TAG, "Note deletion failed: " + e.message.toString())
+        }
+    }
+
+    @SuppressLint("Range")
+    fun getDeletedNotes(): ArrayList<Long> {
+        val result = ArrayList<Long>()
+        val cursor: Cursor
+        try {
+            cursor = database.query(NotesDeletionsTableName, null, null, null,null, null, null)
+            cursor.moveToFirst()
+            while (!cursor.isAfterLast) {
+                val noteID = cursor.getLong(cursor.getColumnIndex("noteID"))
+                result.add(noteID)
+                cursor.moveToNext()
+            }
+            cursor.close()
+        } catch (e: SQLException) {
+            Log.e(TAG, e.message.toString())
+        }
+        return result
+    }
+
+    @SuppressLint("Range")
+    fun getNotesLastUpdated():Long {
+        var cursor = database.rawQuery("SELECT MAX(dateModified) AS maxTimeStamp FROM $NotesTableName", null)
+        var maxTimeStamp: Long = 0
+        if (cursor.moveToFirst()) {
+            maxTimeStamp = cursor.getLong(cursor.getColumnIndex("maxTimeStamp"))
+        }
+        cursor.close()
+        cursor = database.rawQuery("SELECT MAX(timeStamp) AS maxTimeStamp FROM $NotesDeletionsTableName", null)
+        if (cursor.moveToFirst()) {
+            var x = cursor.getLong(cursor.getColumnIndex("maxTimeStamp"))
+            if (x> maxTimeStamp) {maxTimeStamp=x}
+        }
+        cursor.close()
+        return maxTimeStamp
+    }
+
     //---------------------------------- Sample Prompts Table ------------------------------------------
     @SuppressLint("Range")
     fun getSamplePrompt(activityName: String, unused: Boolean = false):SamplePrompt {
@@ -385,11 +674,11 @@ class SQLiteManager(context: Context) {
                 result = SamplePrompt(activityName, prompt)
             }
             cursor.close()
-            database.execSQL("UPDATE $SamplePromptTableName SET used=1 WHERE activityName='$activityName' and prompt='${result}'")
+            database.execSQL("UPDATE $SamplePromptTableName SET used=1 WHERE activityName='$activityName' and prompt='${result.prompt.replace("'", "''")}'")
         }
         catch (exception :Exception) {
             Log.e(TAG, "Error getting sample prompts, regenerating table...")
-            dbHelper.applyUpdates(database)
+            //dbHelper.applyChatUpdates(database)
         }
         return result
     }
@@ -405,12 +694,10 @@ class SQLiteManager(context: Context) {
         if (unused) {sql = "SELECT activityName, prompt FROM $SamplePromptTableName WHERE timeStamp>$cuttoff and used=0 ORDER BY timeStamp"}
         val cursor = database.rawQuery(sql, null)
         if (!cursor.isAfterLast) {
-            if (cursor.moveToFirst()) {
-                while (cursor.moveToNext()) {
-                    val prompt = cursor.getString(cursor.getColumnIndex("prompt"))
-                    val activityName = cursor.getString(cursor.getColumnIndex("activityName"))
-                    result.add(SamplePrompt(activityName, prompt))
-                }
+            while (cursor.moveToNext()) {
+                val prompt = cursor.getString(cursor.getColumnIndex("prompt"))
+                val activityName = cursor.getString(cursor.getColumnIndex("activityName"))
+                result.add(SamplePrompt(activityName, prompt))
             }
         }
         cursor.close()
@@ -430,7 +717,8 @@ class SQLiteManager(context: Context) {
                     p2 = cursor.getString(cursor.getColumnIndex("prompt"))
                     ts = cursor.getLong(cursor.getColumnIndex("timeStamp"))
                     if (p1 == p2) {
-                        database.execSQL("DELETE FROM $SamplePromptTableName WHERE prompt='${p2}' AND timeStamp=$ts")
+                        Log.d(TAG, "Deleting duplicate prompt $p2")
+                        database.execSQL("DELETE FROM $SamplePromptTableName WHERE prompt='${p2.replace("'", "''")}' AND timeStamp=$ts")
                     }
                     p1 = p2
                 }
@@ -439,16 +727,17 @@ class SQLiteManager(context: Context) {
         cursor.close()
     }
 
-    fun appendSamplePrompt(timeStamp: Long, prompt: SamplePrompt) {
-        Log.d(TAG, "Appending prompt to SQL... " + prompt.prompt)
+    fun appendSamplePrompt(timeStamp: Long, sample: SamplePrompt) {
+        Log.d(TAG, "Added prompt to SQL... ")
+        val prompt = sample.prompt.replace("'", "''")
         val SQL = """
         INSERT INTO $SamplePromptTableName (activityName, prompt, used, timeStamp) 
-        VALUES ('${prompt.activityName}','${prompt.prompt}', ${0}, ${timeStamp});
+        VALUES ('${sample.activityName}','${prompt}', ${0}, ${timeStamp});
         """.trimIndent()
 
         try {
             database.execSQL(SQL)
-            Log.d(TAG, "Added sample prompt to SQL: ${prompt.prompt}")
+            Log.d(TAG, "Added sample prompt to SQL: ${sample.activityName} : ${prompt}")
         } catch (e: Exception) {
             Log.e(TAG, "Error writing prompt to SQL: ${e.message}")
         }
@@ -479,65 +768,95 @@ class SQLiteManager(context: Context) {
         return result
     }
 
+    //---------------------------------- Chat Modes Table ------------------------------------------
+    @SuppressLint("Range")
+    fun getChatModes():ArrayList<ChatActivityType> {
+        var result = ArrayList<ChatActivityType>()
+        var sql = "SELECT activityName, prompt, conversational, clearConversationOnChange, showLanguageOptions, temperature FROM $ChatModesTableName ORDER BY sequence"
+        val cursor = database.rawQuery(sql, null)
+        if (!cursor.isAfterLast) {
+            while (cursor.moveToNext()) {
+                val activityName = cursor.getString(cursor.getColumnIndex("activityName"))
+                val prompt = cursor.getString(cursor.getColumnIndex("prompt"))
+                val conversational = cursor.getInt(cursor.getColumnIndex("conversational")) != 0
+                val clearConversationOnChange = cursor.getInt(cursor.getColumnIndex("clearConversationOnChange")) != 0
+                val showLanguageOptions = cursor.getInt(cursor.getColumnIndex("showLanguageOptions")) != 0
+                val temperature = cursor.getDouble(cursor.getColumnIndex("temperature"))
+                result.add(ChatActivityType(activityName, prompt, conversational, clearConversationOnChange, showLanguageOptions, temperature))
+            }
+        }
+        cursor.close()
+        return result
+    }
+
+    fun clearChatModes() {
+        Log.d(TAG, "Clearing $ChatModesTableName")
+        database.execSQL("DELETE FROM $ChatModesTableName")
+    }
+
+    fun appendChatMode(cm: ChatActivityType, sequence: Int, timeStamp:Long) {
+        Log.d(TAG, "Appending chat activitiy type to SQL... " + cm.prompt)
+        val prompt = cm.prompt.replace("'", "''")
+        val SQL = """
+        INSERT INTO $ChatModesTableName (activityName, prompt, conversational,clearConversationOnChange,showLanguageOptions,temperature,sequence,timeStamp) 
+        VALUES ('${cm.activityName}','${prompt}', ${if (cm.conversational) 1 else 0}, ${if (cm.clearConversationOnChange) 1 else 0},${if (cm.showLanguageOptions) 1 else 0},${cm.temperature},${sequence},${timeStamp} );
+        """.trimIndent()
+        try {
+            database.execSQL(SQL)
+            Log.d(TAG, "Added chat mode to SQL: ${cm.activityName}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing chat mode to SQL: ${e.message}")
+        }
+    }
+
+    @SuppressLint("Range")
+    fun getChatModesLastUpdated(): Long {
+        val cursor = database.rawQuery("SELECT MAX(timeStamp) AS maxTimeStamp FROM $ChatModesTableName", null)
+        var maxTimeStamp: Long = 0
+        if (cursor.moveToFirst()) {
+            maxTimeStamp = cursor.getLong(cursor.getColumnIndex("maxTimeStamp"))
+        }
+        cursor.close()
+        return maxTimeStamp
+    }
+
     //---------------------------------- Fixes and Maintenance ------------------------------------------
 
-    fun applyFixes(userID:String, androidID: String) {
-        Log.d(TAG, "Appling database fixes...")
-        dbHelper.applyUpdates(database)
+    fun applyChatDatabaseFixes(userID:String, androidID: String) {
+        Log.d(TAG, "Appling chat database fixes...")
+        //dbHelper.applyChatUpdates(database)
         //Log.d(TAG, "Empty userID, set to " + userID)
         database.execSQL("UPDATE $ConversationTableName SET userID='${userID}' WHERE userID=''")
         database.execSQL("UPDATE $UsageTableName SET userID='${userID}' WHERE userID=''")
-        cleanSamplePrompts()
-        try {
-            val cursor = database.query(MessageTableName,null,null, null, null,null,"timeStamp")
-            if (!cursor.isAfterLast) {
-                cursor.moveToFirst()
-                while (!cursor.isAfterLast) {
-                    val message = cursorToChatMessage(cursor)
-                    val q2 = ChatManager.formatPromptPrettyLike(message.content)
-                    if (q2 != message.content) {
-                        var SQL = "UPDATE " + MessageTableName + " SET content='" + q2 + "' WHERE conversationID=" + message.conversationID + " AND timeStamp=" + message.timeStamp
-                        database.execSQL(SQL)
-                        SQL = "UPDATE $ConversationTableName SET dateModified = ${Date().time} WHERE  conversationID = ${message.conversationID};"
-                        database.execSQL(SQL)
-                        Log.i(TAG, SQL)
-                    }
-                    Log.i(TAG, message.content)
-                    cursor.moveToNext()
-                }
-            }
-            cursor.close()
-        } catch (e: SQLException) {
-            Log.e(TAG, e.message.toString())
-        }
+        //cleanSamplePrompts()
 
-        try {
-            val cursor = database.query(MessageTableName,null,"role=?", arrayOf("user"), null,null,"timeStamp")
-            cursor.moveToFirst()
-            if (!cursor.isAfterLast) {
-                while (!cursor.isAfterLast) {
-                    val message = cursorToChatMessage(cursor)
-                    val q2 = ChatManager.formatPromptPrettyLike(message.content)
-                    if (q2 != message.content) {
-                        var SQL = "UPDATE " + MessageTableName + " SET content='" + q2 + "' WHERE conversationID=" + message.conversationID + " AND timeStamp=" + message.timeStamp
-                        database.execSQL(SQL)
-                        SQL = "UPDATE $ConversationTableName SET dateModified = ${Date().time} WHERE  conversationID = ${message.conversationID};"
-                        database.execSQL(SQL)
-                        Log.i(TAG, SQL)
-                    }
-                    Log.i(TAG, message.content)
-                    cursor.moveToNext()
-                }
-            }
-            cursor.close()
-        } catch (e: SQLException) {
-            Log.e(TAG, e.message.toString())
-        }
-
+//        try {
+//            val cursor = database.query(MessageTableName,null,null, null, null,null,"timeStamp")
+//            if (!cursor.isAfterLast) {
+//                cursor.moveToFirst()
+//                while (!cursor.isAfterLast) {
+//                    val message = cursorToChatMessage(cursor)
+//                    val q2 = ChatManager.formatPromptPrettyLike(message.content).replace("'", "''")
+//                    if (q2 != message.content) {
+//                        var SQL = "UPDATE " + MessageTableName + " SET content='" + q2 + "' WHERE conversationID=" + message.conversationID + " AND timeStamp=" + message.timeStamp
+//                        database.execSQL(SQL)
+//                        SQL = "UPDATE $ConversationTableName SET dateModified = ${Date().time} WHERE  conversationID = ${message.conversationID};"
+//                        database.execSQL(SQL)
+//                        //Log.i(TAG, SQL)
+//                    }
+//                    //Log.i(TAG, message.content)
+//                    cursor.moveToNext()
+//                }
+//            }
+//            cursor.close()
+//        } catch (e: SQLException) {
+//            Log.e(TAG, e.message.toString())
+//        }
         if (androidID !=""){
             //Log.d(TAG, "Empty androidID, set to " + androidID)
             database.execSQL("UPDATE $UsageTableName SET androidID='${androidID}' WHERE androidID=''")
         }
         Log.d(TAG, "Appling database fixes complete")
     }
+
 }

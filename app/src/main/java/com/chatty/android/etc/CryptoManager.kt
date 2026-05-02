@@ -97,7 +97,7 @@ object CryptoManager {
     fun getPublicKeyString(): String { return bytesToBase64Text(getPublicKey().encoded)  }
 
     private fun encryptWithAes(byteArray: ByteArray, key: SecretKey, iv: ByteArray): ByteArray {
-        Log.d(TAG, "Encrypting with AES... Size: " + byteArray.size)
+        //Log.d(TAG, "Encrypting with AES... Size: " + byteArray.size)
         try {
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             val ivSpec = IvParameterSpec(iv)
@@ -134,7 +134,7 @@ object CryptoManager {
         return result
     }
 
-    private fun decryptWtihRSA(encryptedBytes: ByteArray): ByteArray {
+    private fun decryptWithRSA(encryptedBytes: ByteArray): ByteArray {
         Log.d(TAG, "Decrypting with RSA")
         var result = byteArrayOf()
         val privateKey = getPrivateKey()
@@ -211,12 +211,12 @@ object CryptoManager {
         val x = text.split("|")
         if (x.size == 1) {
             Log.d(TAG, "Short string is directly decrypted from RSA")
-            val decryptedBytes = decryptWtihRSA(bytesFromBase64Text(text))
+            val decryptedBytes = decryptWithRSA(bytesFromBase64Text(text))
             result = bytesToText(decryptedBytes)
         } else if (x.size == 3) {
             Log.d(TAG, "Long string is decrypted with AES")
             val encryptedAESKey = bytesFromBase64Text(x[0])
-            val decryptedAESKey = decryptWtihRSA(encryptedAESKey)
+            val decryptedAESKey = decryptWithRSA(encryptedAESKey)
             val aesKey = SecretKeySpec(decryptedAESKey, "AES")
             val iv = bytesFromBase64Text(x[1])
             val encryptedBytes = bytesFromBase64Text(x[2])

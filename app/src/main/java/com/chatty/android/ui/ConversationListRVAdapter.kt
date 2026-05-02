@@ -13,6 +13,7 @@ import java.text.SimpleDateFormat
 import kotlin.reflect.KFunction1
 import com.chatty.android.etc.ChatManager
 import com.chatty.android.etc.DataClasses.*
+import com.chatty.android.etc.TextUtility
 
 class ConversationListRVAdapterSwipeCallBack(private val adapter: RecyclerView.Adapter<*>, private val swipeListener: ConversationListRVAdapter.SwipeListener) :
     ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT ) {
@@ -61,11 +62,9 @@ class ConversationListRVAdapter(private val context: Context, private var conver
             val sdf = SimpleDateFormat("MM/dd/yy HH:mm")
             val conv: Conversation = conversationList[position]
             holder.conversationTitle.text = conv.title
-            if (conv.summary.length > 400){
-                holder.conversationSummary.text = conv.summary.take(400) + "..."
-            } else {
-                holder.conversationSummary.text = conv.summary
-            }
+            var summary = TextUtility.cleanText(conv.summary)
+            if (summary.length > 400) {                summary = summary.take(400) + "..."            }
+            holder.conversationSummary.text = summary
             holder.conversationDateModified.text = sdf.format(conv.dateModified)//conv.dateModified.toString()
             holder.conversationID.text = conv.conversationID.toString()
             holder.conversationTitle.setOnClickListener{

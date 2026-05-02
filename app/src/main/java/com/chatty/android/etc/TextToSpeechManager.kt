@@ -3,6 +3,7 @@ import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import kotlinx.coroutines.delay
 import java.util.Locale
 import com.chatty.android.etc.DataClasses.*
 
@@ -32,16 +33,9 @@ object TextToSpeechManager : TextToSpeech.OnInitListener {
             Log.d(TAG, "TTS setting locale...")
             val locale = Locale.getDefault()
             val result = tts.setLanguage(locale)
-            speechEnabled = true
-            TextToSpeech.SUCCESS
             Log.d(TAG, "TTS Startup Result:" + result)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                speechEnabled = false
-            }
-        } else {
-            speechEnabled = false
+            speechEnabled = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED
         }
-        speechEnabled = true
         if (speechEnabled){
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
@@ -63,7 +57,7 @@ object TextToSpeechManager : TextToSpeech.OnInitListener {
     }
 
     private fun _speak(text: String, utteranceId: Int) {
-        isSpeaking = true   //Need to set this right away or the others will queue up before it start
+        isSpeaking = true   //Need to set this right away or the others will queue up before it starts
         Log.d(TAG,"TTS Speaking: " + text)
         tts.speak(text, TextToSpeech.QUEUE_ADD, null, utteranceId.toString())
     }
@@ -78,6 +72,10 @@ object TextToSpeechManager : TextToSpeech.OnInitListener {
             ChatLanguageOption.German -> {
                 tts.setLanguage(Locale.GERMAN)
             }
+            ChatLanguageOption.Spanish -> {
+                val locale = Locale("es", "MX")
+                tts.setLanguage(locale)
+            }
             ChatLanguageOption.Chinese -> {
                 tts.setLanguage(Locale.SIMPLIFIED_CHINESE)
             }
@@ -87,57 +85,58 @@ object TextToSpeechManager : TextToSpeech.OnInitListener {
             ChatLanguageOption.Japanese -> {
                 tts.setLanguage(Locale.JAPAN)
             }
+            ChatLanguageOption.Nepalese -> {
+                val locale = Locale("ne", "NP")
+                tts.setLanguage(locale)
+            }
             else -> {
                 tts.setLanguage(Locale.ENGLISH)
             }
         }
     }
 
-    fun speak(text: String) {
+    suspend fun speak(text: String) {
         var timeOnPause: Long = 0
-        if (speechEnabled) {
-            var newRequest :Boolean = true
-            if (isSpeaking){
-                stopRequested = true
-                pauseRequested = false
-                while (isSpeaking) {
-                    Log.d(TAG, "TTS: stopping speech for new request...")
-                    Thread.sleep(100)
-                }
-                stopRequested = false
+        if (!speechEnabled) {
+            Log.d(TAG, "TTS: Speech is not enabled.")
+            return
+        }
+        if (isSpeaking) {
+            stopRequested = true
+            pauseRequested = false
+            while (isSpeaking) {
+                Log.d(TAG, "TTS: stopping speech for new request...")
+                delay(100)
             }
-            if (newRequest) {
-                stopRequested = false
-                currentText = text
-                if (text.length < 120) {
-                    _speak(text,0)
-                } else {
-                    val thread = Thread {
-                        val parts = text.split(Regex("[.!?]+\\s*"))
-                        var i =0
-                        for (part  in parts) {
-                            if (!stopRequested && part !="") {
-                                _speak(part, i)
-                                i+=1
-                                while ((isSpeaking || pauseRequested) && !stopRequested) {
-                                    Thread.sleep(100)
-                                    timeOnPause +=100
-                                    if (timeOnPause > maxPauseTime) {
-                                        stopRequested = true
-                                        pauseRequested = false
-                                    }
-                                }
-                                timeOnPause = 0
+            stopRequested = false
+        }
+        stopRequested = false
+        currentText = text
+        if (text.length < 120) {
+            _speak(text, 0)
+        } else {
+            val thread = Thread {
+                val parts = text.split(Regex("[.!?]+\\s*"))
+                var i = 0
+                for (part in parts) {
+                    if (!stopRequested && part != "") {
+                        _speak(part, i)
+                        i += 1
+                        while ((isSpeaking || pauseRequested) && !stopRequested) {
+                            Thread.sleep(100)
+                            timeOnPause += 100
+                            if (timeOnPause > maxPauseTime) {
+                                stopRequested = true
+                                pauseRequested = false
                             }
                         }
-                        stopRequested = false
-                        pauseRequested = false
+                        timeOnPause = 0
                     }
-                    thread.start()
                 }
+                stopRequested = false
+                pauseRequested = false
             }
-        } else {
-            Log.d(TAG, "TTS: Speech is not enabled.")
+            thread.start()
         }
     }
 

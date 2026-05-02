@@ -8,8 +8,10 @@ import com.chatty.android.etc.DataClasses.*
 object ChatManager {
 	private data class ChatResult(var content: String, var totalTokens: Int)
 	private const val TAG = "ChatManager"
-	private const val defaultModel: String = "gpt-3.5-turbo"
-	private const val enhancedModel: String = "gpt-4"
+
+	//gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4
+	var defaultModel: String = "gpt-4o-mini"
+	var enhancedModel: String = "gpt-4o"
 	private var currentModel = defaultModel
 	private var conversationTokenCount: Int=0
 	private lateinit var chatModes: ArrayList<ChatActivityType>
@@ -30,32 +32,9 @@ object ChatManager {
 			currentModel = defaultModel
 		}
 		return currentModel
-
 	}
 
 // ------------------------------------- Utility --------------------------------------
-	fun formatPromptPrettyLike(s1: String): String {
-		var formattedString = s1.trim().capitalize()
-		if ("what" in formattedString || "who" in formattedString || "why" in formattedString || "where" in formattedString) {
-			if (!formattedString.endsWith("?")) {
-				formattedString += "?"
-			}
-		}
-		return formattedString
-	}
-
-	fun formatHTMLMarkup(text:String):String{
-		val HTMLStartTag = "<!DOCTYPE html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>\n" +
-				"<style> body {font-size: 8px; font-family: sans-serif;  } div { background-color: black; color: white;} </style>\n</head><body>"
-		val HTMLEndTag = "</body> </html>"
-		val ticks = "\n```"
-		var result = text.replace("\n", "<BR>")
-		while (result.contains(ticks)) {
-			result = result.replaceFirst(ticks, "<pre><div>")
-			result = result.replaceFirst(ticks, "</div></pre>")
-		}
-		return HTMLStartTag + result + HTMLEndTag
-	}
 
 	fun getTokenCount(text: String): Int {
 		var token_count = 0
@@ -69,8 +48,8 @@ object ChatManager {
 	}
 
 	// ------------------------------------- Conversation management --------------------------------------
-	fun  getConversations(){
-		conversationList = StorageManager.getConversationList()
+	fun  getConversations(filterString: String = "", limitResultsTo:Int = 0 ){
+		conversationList = StorageManager.getConversationList(filterString, limitResultsTo)
 	}
 
 	fun clearConversation() {
@@ -133,14 +112,20 @@ object ChatManager {
 
 	private suspend fun _executeQuery(messages: List<ChatMessage>, temperature: Double=0.2, model: String=defaultModel, isSystem:Boolean=false): ChatResult {
 		var result = ChatResult("",0)
-		val chatCompletion: ChatCompletion = WebManager.callChatCompletionAPI(messages, temperature, model)
+		val chatCompletion: ChatCompletion = NetworkManager.callChatCompletionAPI(messages, temperature, model)
+		if (chatCompletion.choices.isEmpty()) {
+			result.content = "No response received."
+			Log.e(TAG, "Empty choices array from API")
+			return result
+		}
 		val message = chatCompletion.choices[0].message
 		if (chatCompletion.choices[0].finish_reason == "Error") {
-			result.content = message.content
-			if (result.content.startsWith("Socket timeout", true)) {
-				Log.e(TAG, result.content)
-				result.content = "Request timed out."
+			result.content = if (message.content.startsWith("Socket timeout", true)) {
+				"Request timed out."
+			} else {
+				message.content
 			}
+			Log.e(TAG, result.content)
 		} else {
 			val usage = chatCompletion.usage
 			var u = ChatUsage(conversation.conversationID, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
@@ -157,13 +142,18 @@ object ChatManager {
 
 	suspend fun chatbotQuery(question: String, chatActivityMode: ChatActivityType, languageOption:ChatLanguageOption, user_instructions: String =""):String {
 		var result:String = ""
+		if (question.isEmpty()) return result
 		if (StorageManager.API_KEY=="") {
+			val user_tokens:Int = getTokenCount(question)
+			appendConversation(question, user_tokens, false)
 			result = "Device awaiting activation..."
-		} else if (question !="") {
+			appendConversation(result, 0, true)
+		} else {
 			val messages = ArrayList<ChatMessage>()
 			var system_message: String
 			system_message = chatActivityMode.prompt
-			if (chatActivityMode.showLanguageOptions) {system_message += " " + languageOption}
+			if (chatActivityMode.showLanguageOptions) {system_message = system_message.replace("LANGUAGE",languageOption.toString())}
+			Log.i(TAG, system_message)
 			val user_tokens:Int = getTokenCount(user_instructions + ". " + question)
 			if (user_instructions !="") { system_message = user_instructions + ". " + system_message }
 			//val system_tokens = getTokenCount(system_message)
@@ -181,6 +171,7 @@ object ChatManager {
 			}
 			messages.add(ChatMessage("user", question))
 			appendConversation(question, user_tokens, false)
+			if (currentModel =="") {currentModel= defaultModel}
 			val queryResult = _executeQuery(messages,  chatActivityMode.temperature,  currentModel, false)
 			appendConversation(content = queryResult.content, tokenCount = queryResult.totalTokens, isResponse = true)
 			result = queryResult.content
