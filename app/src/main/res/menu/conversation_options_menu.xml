@@ -1,0 +1,16 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/option_speak"
+        android:title="@string/menu_speak"
+        android:checkable="true"
+        />
+    <item
+        android:id="@+id/option_autosubmit"
+        android:title="@string/menu_auto_submit"
+        android:checkable="true"
+        />
+    <item
+        android:id="@+id/option_save_as_note"
+        android:title="@string/menu_save_as_note"
+        />
+</menu>

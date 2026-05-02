@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <TextView
+        android:id="@+id/txtTicker"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="TICK"
+        android:padding="6dp"
+        android:textStyle="bold"
+        android:clickable="true"
+        android:background="@color/promptBackground"
+        android:textAppearance="@style/TextAppearance.AppCompat.SearchResult.Title"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"/>
+
+    <TextView
+        android:id="@+id/txtCurrentPrice"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="$0.00"
+        android:padding="6dp"
+        android:clickable="true"
+        android:background="@color/promptBackground"
+        android:textAppearance="@style/TextAppearance.AppCompat.SearchResult.Title"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
+
+    <TextView
+        android:id="@+id/txtCompanyName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Company Name"
+        android:padding="6dp"
+        android:clickable="true"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        app:layout_constraintTop_toBottomOf="@id/txtTicker"
+        app:layout_constraintStart_toStartOf="parent"/>
+
+    <TextView
+        android:id="@+id/txtSector"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Sector"
+        android:padding="6dp"
+        android:clickable="true"
+        android:textColor="@color/colorTextSecondary"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        app:layout_constraintTop_toBottomOf="@id/txtCompanyName"
+        app:layout_constraintStart_toStartOf="parent"/>
+
+    <TextView
+        android:id="@+id/txtPriceChanges"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="1D: +0.0%  1M: +0.0%  1Y: +0.0%"
+        android:padding="6dp"
+        android:clickable="true"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        app:layout_constraintTop_toBottomOf="@id/txtSector"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/txtTargetHoldings"/>
+
+    <TextView
+        android:id="@+id/txtTargetHoldings"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Target: 0.00"
+        android:padding="6dp"
+        android:clickable="true"
+        android:textAppearance="@style/TextAppearance.AppCompat.Small"
+        app:layout_constraintTop_toBottomOf="@id/txtSector"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBaseline_toBaselineOf="@id/txtPriceChanges"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

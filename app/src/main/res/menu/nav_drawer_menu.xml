@@ -1,0 +1,26 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_home"
+        android:title="@string/nav_home"
+        android:icon="@drawable/chat"/>
+    <item
+        android:id="@+id/nav_conversations"
+        android:title="@string/nav_conversations"
+        android:icon="@drawable/list"/>
+    <item
+        android:id="@+id/nav_notes"
+        android:title="@string/nav_notes"
+        android:icon="@drawable/note_sticky"/>
+    <item
+        android:id="@+id/nav_usage"
+        android:title="@string/nav_usage"
+        android:icon="@drawable/check_list"/>
+    <item
+        android:id="@+id/nav_prices"
+        android:title="@string/nav_prices"
+        android:icon="@drawable/bullet_list"/>
+    <item
+        android:id="@+id/nav_settings"
+        android:title="@string/nav_settings"
+        android:icon="@drawable/ic_more_vert"/>
+</menu>
